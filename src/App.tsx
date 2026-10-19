@@ -532,18 +532,27 @@ function CardEditor({
                 <>
                   <label className="field-label">Mencionados</label>
                   <div className="mention-chips">
-                    {mentions.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className="mention-chip"
-                        title={`Abrir "${m.name}" en el codex`}
-                        onClick={() => onOpenCodexEntry(m.id)}
-                      >
-                        <span className="mention-dot" style={{ background: m.color }} />
-                        {m.name}
-                      </button>
-                    ))}
+                    {mentions.map((m) => {
+                      const MentionIcon = iconFor(m.icon);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className="mention-chip"
+                          title={`Abrir "${m.name}" en el codex`}
+                          onClick={() => onOpenCodexEntry(m.id)}
+                        >
+                          {MentionIcon ? (
+                            <span className="mention-icon" style={{ color: m.color }}>
+                              <MentionIcon size={13} />
+                            </span>
+                          ) : (
+                            <span className="mention-dot" style={{ background: m.color }} />
+                          )}
+                          {m.name}
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -839,17 +848,26 @@ function CodexModal({
             </div>
             <div className="codex-entries">
               {visible.length === 0 && <p className="muted">Sin entradas.</p>}
-              {visible.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  className={`codex-row${e.id === selectedId ? ' active' : ''}`}
-                  onClick={() => setSelectedId(e.id)}
-                >
-                  <span className="mention-dot" style={{ background: e.color }} />
-                  {e.name}
-                </button>
-              ))}
+              {visible.map((e) => {
+                const EntryIcon = iconFor(e.icon);
+                return (
+                  <button
+                    key={e.id}
+                    type="button"
+                    className={`codex-row${e.id === selectedId ? ' active' : ''}`}
+                    onClick={() => setSelectedId(e.id)}
+                  >
+                    {EntryIcon ? (
+                      <span className="codex-row-icon" style={{ color: e.color }}>
+                        <EntryIcon size={15} />
+                      </span>
+                    ) : (
+                      <span className="mention-dot" style={{ background: e.color }} />
+                    )}
+                    {e.name}
+                  </button>
+                );
+              })}
             </div>
             <button
               className="btn btn-secondary"
@@ -902,6 +920,41 @@ function CodexModal({
                       onClick={() => updateCodex(selected.id, { color: c })}
                     />
                   ))}
+                  <label
+                    className={`swatch swatch-custom${CODEX_COLORS.includes(selected.color) ? '' : ' active'}`}
+                    title="Color personalizado"
+                  >
+                    <input
+                      type="color"
+                      value={selected.color}
+                      onChange={(e) => updateCodex(selected.id, { color: e.target.value.toUpperCase() })}
+                    />
+                  </label>
+                </div>
+                <label className="field-label">Icono</label>
+                <div className="icon-grid">
+                  <button
+                    type="button"
+                    className={`icon-btn${!selected.icon ? ' active' : ''}`}
+                    title="Sin icono"
+                    onClick={() => updateCodex(selected.id, { icon: null })}
+                  >
+                    <Ban size={15} />
+                  </button>
+                  {CARD_ICONS.map(({ key, label }) => {
+                    const Icon = iconFor(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`icon-btn${selected.icon === key ? ' active' : ''}`}
+                        title={label}
+                        onClick={() => updateCodex(selected.id, { icon: key })}
+                      >
+                        {Icon && <Icon size={15} />}
+                      </button>
+                    );
+                  })}
                 </div>
                 <label className="field-label">Notas</label>
                 <textarea

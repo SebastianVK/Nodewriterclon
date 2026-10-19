@@ -10,7 +10,7 @@ import type {
   Project,
   Revision,
 } from './types';
-import { nowIso, uid } from './types';
+import { nowIso, uid, CODEX_DEFAULT_COLOR, CODEX_DEFAULT_ICON } from './types';
 
 interface StoryState {
   projects: Project[];
@@ -375,7 +375,8 @@ export const useStore = create<StoryState>()(
           type,
           name: 'Nueva entrada',
           aliases: [],
-          color: '#64748B',
+          color: CODEX_DEFAULT_COLOR[type],
+          icon: CODEX_DEFAULT_ICON[type],
           notes: '',
         };
         if (!get().currentId) return null;

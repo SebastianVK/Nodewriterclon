@@ -112,6 +112,7 @@ function normalizeStorygraph(o: Record<string, unknown>): Project {
       name: str(e.name, 'Sin nombre'),
       aliases: toStringArray(e.aliases),
       color: str(e.color, '#64748B'),
+      icon: strOrNull(e.icon),
       notes: str(e.notes),
     };
   });
@@ -193,6 +194,7 @@ function normalizeNodeWriter(
       name: str(e.name, 'Sin nombre'),
       aliases: toStringArray(e.aliases),
       color: str(e.color_hex ?? e.color, '#64748B'),
+      icon: strOrNull(e.icon_name ?? e.icon),
       notes: str(e.description ?? e.notes),
     };
   });

@@ -60,9 +60,16 @@ function CardNodeComponent({ data, selected }: NodeProps) {
         )}
         <div className="card-meta">
           {words > 0 && <span className="card-words">{words} palabras</span>}
-          {mentioned.map((m) => (
-            <span key={m.id} className="mention-dot" style={{ background: m.color }} title={m.name} />
-          ))}
+          {mentioned.map((m) => {
+            const MentionIcon = iconFor(m.icon);
+            return MentionIcon ? (
+              <span key={m.id} className="mention-dot mention-icon" style={{ color: m.color }} title={m.name}>
+                <MentionIcon size={12} />
+              </span>
+            ) : (
+              <span key={m.id} className="mention-dot" style={{ background: m.color }} title={m.name} />
+            );
+          })}
         </div>
       </div>
       <Handle type="source" position={Position.Right} />

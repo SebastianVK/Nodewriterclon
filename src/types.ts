@@ -40,6 +40,7 @@ export interface CodexEntry {
   name: string;
   aliases: string[];
   color: string;
+  icon?: string | null;
   notes: string;
 }
 
@@ -108,14 +109,38 @@ export const GROUP_COLORS = [
 
 export const CODEX_COLORS = [
   '#2563EB',
-  '#DC2626',
-  '#16A34A',
-  '#D97706',
+  '#4F46E5',
+  '#7C3AED',
   '#9333EA',
+  '#A855F7',
+  '#DC2626',
+  '#EA580C',
+  '#F97316',
+  '#D97706',
+  '#EAB308',
+  '#16A34A',
+  '#059669',
   '#0891B2',
+  '#0EA5E9',
   '#DB2777',
   '#64748B',
 ];
+
+export const CODEX_DEFAULT_COLOR: Record<CodexType, string> = {
+  character: '#2563EB',
+  location: '#16A34A',
+  item: '#D97706',
+  lore: '#9333EA',
+  other: '#64748B',
+};
+
+export const CODEX_DEFAULT_ICON: Record<CodexType, string | null> = {
+  character: 'user',
+  location: 'map-pin',
+  item: 'bookmark',
+  lore: 'flag',
+  other: null,
+};
 
 export const CODEX_TYPES: { key: CodexType; label: string }[] = [
   { key: 'character', label: 'Personaje' },
