@@ -570,6 +570,16 @@ function CardEditor({
                         onClick={() => setColor(c)}
                       />
                     ))}
+                    <label
+                      className={`swatch swatch-custom${CARD_COLORS.includes(color) ? '' : ' active'}`}
+                      title="Color personalizado"
+                    >
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => setColor(e.target.value.toUpperCase())}
+                      />
+                    </label>
                   </div>
                 </div>
                 <div className="appearance-group">
@@ -1897,6 +1907,16 @@ function Board({ projectId }: { projectId: string }) {
                     onClick={() => { paintCard(ctxCard.id, { color: c }); setCtx(null); }}
                   />
                 ))}
+                <label
+                  className={`swatch swatch-custom${CARD_COLORS.includes(ctxCard.color) ? '' : ' active'}`}
+                  title="Color personalizado"
+                >
+                  <input
+                    type="color"
+                    value={ctxCard.color}
+                    onChange={(e) => paintCard(ctxCard.id, { color: e.target.value.toUpperCase() })}
+                  />
+                </label>
               </div>
               <div className="ctx-label">Icono</div>
               <div className="ctx-icons">

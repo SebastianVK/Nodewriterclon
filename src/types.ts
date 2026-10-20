@@ -75,6 +75,14 @@ export const CARD_COLORS = [
   '#0891B2',
   '#EA580C',
   '#DB2777',
+  '#4F46E5',
+  '#7C3AED',
+  '#0EA5E9',
+  '#059669',
+  '#EAB308',
+  '#F472B6',
+  '#14B8A6',
+  '#64748B',
 ];
 
 export const CARD_ICONS: { key: string; label: string }[] = [
