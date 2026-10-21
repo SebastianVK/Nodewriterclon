@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import type {
   Card,
   CodexEntry,
@@ -292,4 +293,92 @@ export function exportBackup(project: Project): string {
     null,
     2,
   );
+}
+
+/* ---------- backup ZIP (project.json + imágenes) ---------- */
+
+export interface BackupImage {
+  id: string;
+  blob: Blob;
+  mime: string;
+  ext: string;
+  name: string;
+  w: number;
+  h: number;
+}
+
+export interface BackupWithImages {
+  parsed: ParsedBackup;
+  images: BackupImage[];
+}
+
+export async function exportBackupZip(project: Project, images: BackupImage[]): Promise<Blob> {
+  const zip = new JSZip();
+  zip.file(
+    'project.json',
+    JSON.stringify(
+      { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: nowIso(), app: 'storygraph', project },
+      null,
+      2,
+    ),
+  );
+  zip.file(
+    'images.json',
+    JSON.stringify(
+      images.map(({ id, mime, ext, name, w, h }) => ({ id, mime, ext, name, w, h })),
+      null,
+      2,
+    ),
+  );
+  for (const i of images) {
+    const bytes = new Uint8Array(await i.blob.arrayBuffer());
+    zip.file(`images/${i.id}.${i.ext}`, bytes);
+  }
+  return zip.generateAsync({ type: 'blob' });
+}
+
+export async function parseBackupZip(buf: ArrayBuffer): Promise<BackupWithImages> {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(buf);
+  } catch {
+    throw new Error('El ZIP no se pudo abrir (¿está corrupto?).');
+  }
+  const pj = zip.file('project.json');
+  if (!pj) throw new Error('El ZIP no contiene project.json.');
+  const parsed = parseBackupJson(await pj.async('string'));
+
+  const metaFile = zip.file('images.json');
+  const metaArr: { id: string; mime?: string; ext?: string; name?: string; w?: number; h?: number }[] = metaFile
+    ? JSON.parse(await metaFile.async('string'))
+    : [];
+  const metaById = new Map(metaArr.map((m) => [m.id, m]));
+  const images: BackupImage[] = [];
+  for (const path of Object.keys(zip.files)) {
+    if (!path.startsWith('images/') || zip.files[path].dir) continue;
+    const fname = path.slice('images/'.length);
+    const id = fname.replace(/\.[^.]+$/, '');
+    const bytes = await zip.files[path].async('uint8array');
+    const m = metaById.get(id);
+    const mime = m?.mime ?? 'image/png';
+    const ext = m?.ext ?? (fname.includes('.') ? (fname.split('.').pop() as string) : 'png');
+    images.push({
+      id,
+      blob: new Blob([new Uint8Array(bytes)], { type: mime }),
+      mime,
+      ext,
+      name: m?.name ?? fname,
+      w: m?.w ?? 0,
+      h: m?.h ?? 0,
+    });
+  }
+  return { parsed, images };
+}
+
+/** Detecta ZIP por la cabecera mágica y parsea ZIP o JSON. */
+export async function parseBackupFile(file: File): Promise<BackupWithImages> {
+  const buf = await file.arrayBuffer();
+  const head = new Uint8Array(buf.slice(0, 2));
+  if (head.length >= 2 && head[0] === 0x50 && head[1] === 0x4b) return parseBackupZip(buf);
+  return { parsed: parseBackupJson(new TextDecoder().decode(buf)), images: [] };
 }

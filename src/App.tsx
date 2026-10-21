@@ -47,10 +47,12 @@ import {
   CircleQuestionMark,
   Copy,
   Download,
+  FileArchive,
   FileDown,
   FileText,
   Group as GroupIcon,
   Heading,
+  ImagePlus,
   Italic,
   Link2,
   List,
@@ -59,6 +61,7 @@ import {
   Minimize2,
   Moon,
   Network,
+  Paperclip,
   Plus,
   Printer,
   RotateCcw,
@@ -74,7 +77,14 @@ import {
 } from 'lucide-react';
 import { CARD_ICONS, Ban, iconFor } from './icons';
 import { buildEpub, printDocument } from './epub';
-import { exportBackup, parseBackupJson, type ParsedBackup } from './backup';
+import {
+  exportBackup,
+  exportBackupZip,
+  parseBackupFile,
+  type BackupImage,
+  type ParsedBackup,
+} from './backup';
+import { collectImgIds, getImages, isImageFile, putImage, resolveImgRefs } from './images';
 
 const nodeTypes = { card: CardNode, group: GroupNode };
 const GROUP_PREFIX = 'group-';
@@ -185,7 +195,7 @@ function ProjectsPage() {
   const importProject = useStore((s) => s.importProject);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
-  const [pending, setPending] = useState<ParsedBackup | null>(null);
+  const [pending, setPending] = useState<(ParsedBackup & { images: BackupImage[] }) | null>(null);
   const [importError, setImportError] = useState('');
 
   return (
@@ -201,7 +211,7 @@ function ProjectsPage() {
               className="btn btn-secondary"
               onClick={() => document.getElementById('import-json-input')?.click()}
             >
-              Importar JSON
+              Importar JSON/ZIP
             </button>
             <button
               className="btn btn-primary"
@@ -214,23 +224,18 @@ function ProjectsPage() {
         <input
           id="import-json-input"
           type="file"
-          accept=".json,application/json"
+          accept=".json,.zip,application/json,application/zip"
           style={{ display: 'none' }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
             if (!f) return;
             setImportError('');
-            f.text().then(
-              (text) => {
-                try {
-                  setPending(parseBackupJson(text));
-                } catch (err) {
-                  setImportError(err instanceof Error ? err.message : 'No se pudo leer el archivo.');
-                }
-              },
-              () => setImportError('No se pudo leer el archivo.'),
-            );
+            parseBackupFile(f)
+              .then((r) => setPending({ ...r.parsed, images: r.images }))
+              .catch((err: unknown) =>
+                setImportError(err instanceof Error ? err.message : 'No se pudo leer el archivo.'),
+              );
           }}
         />
         {importError && <p className="warn">{importError}</p>}
@@ -286,7 +291,7 @@ function ProjectsPage() {
           })}
         </ul>
         {pending && (
-          <div className="modal-overlay" onClick={() => setPending(null)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setPending(null); }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>Importar proyecto</h2>
@@ -303,6 +308,9 @@ function ProjectsPage() {
                   <li>{pending.counts.cards} tarjeta{pending.counts.cards === 1 ? '' : 's'}</li>
                   <li>{pending.counts.connections} conexiones</li>
                   <li>{pending.counts.groups} grupos · {pending.counts.codex} entradas codex · {pending.counts.revisions} revisiones</li>
+                  {pending.images.length > 0 && (
+                    <li>{pending.images.length} imagen{pending.images.length === 1 ? '' : 'es'}</li>
+                  )}
                 </ul>
                 <p className="muted">Se creará como proyecto nuevo con ids frescos. Tus proyectos existentes no se modifican.</p>
               </div>
@@ -310,7 +318,7 @@ function ProjectsPage() {
                 <button className="btn btn-secondary" onClick={() => setPending(null)}>Cancelar</button>
                 <button
                   className="btn btn-primary"
-                  onClick={() => { importProject(pending.project); setPending(null); }}
+                  onClick={() => { importProject(pending.project, pending.images); setPending(null); }}
                 >
                   Importar
                 </button>
@@ -364,6 +372,7 @@ function CardEditor({
   const [focus, setFocus] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const codex = project?.codex ?? [];
   const allTags = useMemo(() => {
@@ -439,8 +448,40 @@ function CardEditor({
     });
   }
 
+  function insertMd(snippet: string) {
+    const ta = taRef.current;
+    const before = content;
+    const s = ta?.selectionStart ?? before.length;
+    const e = ta?.selectionEnd ?? s;
+    const nlL = s > 0 && before[s - 1] !== '\n' ? '\n' : '';
+    const nlR = e < before.length && before[e] !== '\n' ? '\n' : '';
+    const text = `${nlL}${snippet}${nlR}`;
+    const next = before.slice(0, s) + text + before.slice(e);
+    setContent(next);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const pos = s + text.length;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    });
+  }
+
+  async function insertImages(files: File[]) {
+    const imgs = files.filter(isImageFile).slice(0, 10);
+    const parts: string[] = [];
+    for (const f of imgs) {
+      try {
+        const { id, name } = await putImage(f);
+        parts.push(`![${name.replace(/\.[^.]+$/, '')}](img://${id})`);
+      } catch {
+        /* formato no soportado o sin espacio */
+      }
+    }
+    if (parts.length) insertMd(parts.join('\n\n'));
+  }
+
   return (
-    <div className="modal-overlay" onClick={done}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) done(); }}>
       <div
         className={`modal card-editor-modal${focus ? ' focus' : ''}`}
         onClick={(e) => e.stopPropagation()}
@@ -470,7 +511,13 @@ function CardEditor({
           {!focus && (
             <>
               <label className="field-label">Título</label>
-              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <input
+                className="input"
+                value={title}
+                placeholder="Nueva tarjeta"
+                {...(card.title.trim() ? {} : { autoFocus: true })}
+                onChange={(e) => setTitle(e.target.value)}
+              />
               <label className="field-label">
                 Resumen <span className="muted">{summary.length}/{SUMMARY_MAX}</span>
               </label>
@@ -629,6 +676,23 @@ function CardEditor({
             <button className="btn btn-icon" title="Enlace" onClick={() => applyFormat('link')}>
               <Link2 size={16} />
             </button>
+            <button
+              className="btn btn-icon"
+              title="Insertar imagen (archivo; también puedes pegar o arrastrar)"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip size={16} />
+            </button>
+            <button
+              className="btn btn-icon"
+              title="Insertar imagen desde URL"
+              onClick={() => {
+                const u = window.prompt('URL de la imagen (http/https):');
+                if (u && u.trim()) insertMd(`![imagen](${u.trim()})`);
+              }}
+            >
+              <ImagePlus size={16} />
+            </button>
             <span className="card-words">{wordCount(content)} palabras</span>
           </div>
           <textarea
@@ -637,6 +701,34 @@ function CardEditor({
             value={content}
             placeholder="Escribe en markdown…"
             onChange={(e) => setContent(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files ?? []);
+              if (files.some(isImageFile)) {
+                e.preventDefault();
+                void insertImages(files);
+              }
+            }}
+            onDragOver={(e) => {
+              if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+              e.preventDefault();
+              const files = Array.from(e.dataTransfer.files ?? []);
+              if (files.some(isImageFile)) void insertImages(files);
+            }}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const fs = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              if (fs.length) void insertImages(fs);
+            }}
           />
         </div>
         <div className="modal-footer">
@@ -732,7 +824,7 @@ function RevisionsModal({
   const selected = revisions.find((r) => r.id === selectedId) ?? null;
 
   return (
-    <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); onClose(); }}>
+    <div className="modal-overlay" onMouseDown={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal revision-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Historial de revisiones</h2>
@@ -836,7 +928,7 @@ function CodexModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal codex-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Codex de historia</h2>
@@ -1032,7 +1124,7 @@ function TrashPanel({ onClose, onRestored }: { onClose: () => void; onRestored: 
   );
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal trash-modal" onClick={(e) => e.stopPropagation()}>
       <div className="modal-header">
         <h2>Papelera</h2>
@@ -1138,7 +1230,7 @@ function SearchPalette({
   }
 
   return (
-    <div className="modal-overlay palette-overlay" onClick={onClose}>
+    <div className="modal-overlay palette-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div
         className="palette"
         onClick={(e) => e.stopPropagation()}
@@ -1206,12 +1298,24 @@ function ExportModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'preview' | 'sequence' | 'export'>('preview');
   const [withSummaries, setWithSummaries] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [busyZip, setBusyZip] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<Record<string, string>>({});
   const seq = useMemo(
     () => (project ? orderFromStart(project.cards, project.connections) : []),
     [project],
   );
+  const body = useMemo(() => seq.filter((c) => c.type !== 'start'), [seq]);
+  useEffect(() => {
+    if (tab !== 'preview') return;
+    let alive = true;
+    (async () => {
+      const out: Record<string, string> = {};
+      for (const c of body) out[c.id] = await resolveImgRefs(markdownToHtml(c.content));
+      if (alive) setPreviewHtml(out);
+    })();
+    return () => { alive = false; };
+  }, [tab, body]);
   if (!project) return null;
-  const body = seq.filter((c) => c.type !== 'start');
   const totalWords = body.reduce((n, c) => n + wordCount(c.content), 0);
 
   async function downloadEpub() {
@@ -1224,8 +1328,20 @@ function ExportModal({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function downloadZip() {
+    setBusyZip(true);
+    try {
+      const ids = new Set(project!.cards.flatMap((c) => collectImgIds(c.content)));
+      const images = await getImages([...ids]);
+      const blob = await exportBackupZip(project!, images);
+      downloadBlob(`${project!.name}.storygraph.zip`, blob);
+    } finally {
+      setBusyZip(false);
+    }
+  }
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal export-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Vista previa y exportación — {project.name}</h2>
@@ -1251,7 +1367,13 @@ function ExportModal({ onClose }: { onClose: () => void }) {
               {body.map((c) => (
                 <div key={c.id} className="prose-block">
                   {withSummaries && c.summary && <p className="prose-summary">{c.summary}</p>}
-                  <div dangerouslySetInnerHTML={{ __html: markdownToHtml(c.content) }} />
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        previewHtml[c.id] ??
+                        (c.content.includes('img://') ? '' : markdownToHtml(c.content)),
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -1295,11 +1417,14 @@ function ExportModal({ onClose }: { onClose: () => void }) {
                 <button className="btn btn-secondary" disabled={busy} onClick={downloadEpub}>
                   <BookOpen size={16} /> {busy ? 'Generando…' : 'EPUB'}
                 </button>
+                <button className="btn btn-secondary" disabled={busyZip} onClick={downloadZip}>
+                  <FileArchive size={16} /> {busyZip ? 'Generando…' : 'Backup .zip'}
+                </button>
                 <button
                   className="btn btn-secondary"
                   onClick={() => download(`${project.name}.storygraph.json`, exportBackup(project), 'application/json')}
                 >
-                  <Download size={16} /> Backup JSON
+                  <Download size={16} /> JSON (sin imágenes)
                 </button>
               </div>
             </>
@@ -1314,7 +1439,7 @@ function ExportModal({ onClose }: { onClose: () => void }) {
 
 function HelpModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Cómo funciona StoryGraph</h2>

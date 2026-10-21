@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { remapProject } from './backup';
+import { remapProject, type BackupImage } from './backup';
+import { collectImgIds, importImages, purgeOrphans } from './images';
 import type {
   Card,
   CodexEntry,
@@ -22,7 +23,7 @@ interface StoryState {
   setProjectIcon: (id: string, icon: string | null) => void;
   deleteProject: (id: string) => void;
   openProject: (id: string | null) => void;
-  importProject: (p: Project) => void;
+  importProject: (p: Project, images?: BackupImage[]) => void;
 
   addCard: (x: number, y: number) => Card | null;
   updateCard: (id: string, patch: Partial<Card>) => void;
@@ -154,6 +155,25 @@ export function currentProject(s: StoryState): Project | null {
   return s.projects.find((p) => p.id === s.currentId) ?? null;
 }
 
+/** Ids `img://` referenciados por cualquier tarjeta (incluso en la papelera). */
+function validImageIds(state: StoryState): Set<string> {
+  const ids = new Set<string>();
+  for (const p of state.projects) {
+    for (const c of p.cards) {
+      for (const id of collectImgIds(c.content)) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+let purgeTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleImagePurge(): void {
+  if (purgeTimer) clearTimeout(purgeTimer);
+  purgeTimer = setTimeout(() => {
+    void purgeOrphans(validImageIds(useStore.getState())).catch(() => undefined);
+  }, 1500);
+}
+
 export const useStore = create<StoryState>()(
   persist(
     (set, get) => ({
@@ -179,23 +199,26 @@ export const useStore = create<StoryState>()(
           projects: s.projects.map((p) => (p.id === id ? { ...p, icon } : p)),
         })),
 
-      deleteProject: (id) =>
+      deleteProject: (id) => {
         set((s) => ({
           projects: s.projects.filter((p) => p.id !== id),
           currentId: s.currentId === id ? null : s.currentId,
-        })),
+        }));
+        scheduleImagePurge();
+      },
 
       openProject: (id) => set({ currentId: id }),
 
-      importProject: (p) => {
+      importProject: (p, images) => {
         const fresh = remapProject(p);
         set((s) => ({ projects: [...s.projects, fresh], currentId: fresh.id }));
+        if (images?.length) void importImages(images).catch(() => undefined);
       },
 
       addCard: (x, y) => {
         const card: Card = {
           id: uid(),
-          title: 'Nueva tarjeta',
+          title: '',
           summary: '',
           content: '',
           color: '#64748B',
@@ -251,15 +274,17 @@ export const useStore = create<StoryState>()(
           })),
         ),
 
-      deleteCardForever: (id) =>
+      deleteCardForever: (id) => {
         set((s) =>
           withCurrent(s, (p) => ({
             cards: p.cards.filter((c) => c.id !== id),
             revisions: p.revisions.filter((r) => r.cardId !== id),
           })),
-        ),
+        );
+        scheduleImagePurge();
+      },
 
-      emptyTrash: () =>
+      emptyTrash: () => {
         set((s) =>
           withCurrent(s, (p) => {
             const trashIds = new Set(p.cards.filter((c) => c.deletedAt).map((c) => c.id));
@@ -268,7 +293,9 @@ export const useStore = create<StoryState>()(
               revisions: p.revisions.filter((r) => !trashIds.has(r.cardId)),
             };
           }),
-        ),
+        );
+        scheduleImagePurge();
+      },
 
       removeFromFlow: (id) =>
         set((s) =>

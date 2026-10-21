@@ -1,5 +1,13 @@
 import JSZip from 'jszip';
 import { cardLabel, markdownToHtml, wordCount, type Card } from './types';
+import { collectImgIds, imageData, resolveImgRefs } from './images';
+
+interface ImgMeta {
+  dataUrl: string;
+  mime: string;
+  ext: string;
+}
+type ImgMap = Map<string, ImgMeta>;
 
 function escXml(s: string): string {
   return (s || '')
@@ -9,12 +17,21 @@ function escXml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Convierte refs img:// a rutas del EPUB y cierra los <img> para XHTML. */
+function embedImgs(html: string, imgs: ImgMap): string {
+  const out = html.replace(/<img[^>]*src="img:\/\/([A-Za-z0-9_-]+)"[^>]*>/g, (tag, id: string) => {
+    const m = imgs.get(id);
+    return m ? tag.replace(`img://${id}`, `images/${id}.${m.ext}`) : '';
+  });
+  return out.replace(/ loading="lazy"/g, '').replace(/<img([^>]*?)>/g, '<img$1 />');
+}
+
 /** Contenido HTML del markdown, saneado para XHTML del EPUB. */
-function chapterBody(card: Card, withSummaries: boolean): string {
-  let html = markdownToHtml(card.content || '');
+function chapterBody(card: Card, withSummaries: boolean, imgs: ImgMap): string {
+  let html = embedImgs(markdownToHtml(card.content || ''), imgs);
   html = html.replace(/ target="_blank" rel="noopener"/g, '');
   const summary = withSummaries && card.summary ? `<p><em>${escXml(card.summary)}</em></p>` : '';
-  return `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml">\n<head><title>${escXml(cardLabel(card))}</title></head>\n<body>\n<h1>${escXml(cardLabel(card))}</h1>\n${summary}\n${html || '<p></p>'}\n</body>\n</html>`;
+  return `<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml">\n<head><title>${escXml(cardLabel(card))}</title><style>img{max-width:100%}</style></head>\n<body>\n<h1>${escXml(cardLabel(card))}</h1>\n${summary}\n${html || '<p></p>'}\n</body>\n</html>`;
 }
 
 export async function buildEpub(
@@ -34,9 +51,27 @@ export async function buildEpub(
   const items: string[] = [];
   const spine: string[] = [];
   const ncxNav: string[] = [];
+
+  // Imágenes: se embeben como base64 en OEBPS/images/
+  const imgs: ImgMap = new Map();
+  const idSet = [...new Set(body.flatMap((c) => collectImgIds(c.content || '')))];
+  for (const id of idSet) {
+    const meta = await imageData(id);
+    if (!meta) continue;
+    imgs.set(id, meta);
+    zip.file(
+      `OEBPS/images/${id}.${meta.ext}`,
+      meta.dataUrl.slice(meta.dataUrl.indexOf(',') + 1),
+      { base64: true },
+    );
+    items.push(
+      `    <item id="im-${id}" href="images/${id}.${meta.ext}" media-type="${meta.mime}"/>`,
+    );
+  }
+
   body.forEach((c, i) => {
     const n = i + 1;
-    zip.file(`OEBPS/ch${n}.xhtml`, chapterBody(c, withSummaries));
+    zip.file(`OEBPS/ch${n}.xhtml`, chapterBody(c, withSummaries, imgs));
     items.push(`    <item id="ch${n}" href="ch${n}.xhtml" media-type="application/xhtml+xml"/>`);
     spine.push(`    <itemref idref="ch${n}"/>`);
     ncxNav.push(
@@ -57,22 +92,28 @@ export async function buildEpub(
 }
 
 /** Abre el documento en una ventana de impresión (para guardar como PDF). */
-export function printDocument(projectName: string, seq: Card[], withSummaries: boolean): void {
+export async function printDocument(
+  projectName: string,
+  seq: Card[],
+  withSummaries: boolean,
+): Promise<void> {
   const body = seq.filter((c) => c.type !== 'start');
-  const blocks = body
-    .map(
-      (c) =>
+  const blocks = await Promise.all(
+    body.map(async (c) => {
+      const html = await resolveImgRefs(markdownToHtml(c.content || ''));
+      return (
         `<section><h2>${escXml(cardLabel(c))}</h2>` +
         (withSummaries && c.summary ? `<p class="sum">${escXml(c.summary)}</p>` : '') +
-        `${markdownToHtml(c.content || '')}</section>`,
-    )
-    .join('\n');
+        `${html}</section>`
+      );
+    }),
+  );
   const w = window.open('', '_blank', 'width=800,height=900');
   if (!w) return;
   w.document.write(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escXml(projectName)}</title>` +
-      `<style>body{font-family:Georgia,serif;max-width:640px;margin:40px auto;line-height:1.6;color:#111}h1{border-bottom:2px solid #111;padding-bottom:8px}section{break-inside:avoid;margin-bottom:2em}.sum{color:#555;font-style:italic}a{color:#111}</style>` +
-      `</head><body><h1>${escXml(projectName)}</h1>${blocks || '<p></p>'}<script>onload=()=>{print();}<\/script></body></html>`,
+      `<style>body{font-family:Georgia,serif;max-width:640px;margin:40px auto;line-height:1.6;color:#111}h1{border-bottom:2px solid #111;padding-bottom:8px}section{break-inside:avoid;margin-bottom:2em}.sum{color:#555;font-style:italic}a{color:#111}img{max-width:100%}</style>` +
+      `</head><body><h1>${escXml(projectName)}</h1>${blocks.join('\n') || '<p></p>'}<script>onload=()=>{print();}<\/script></body></html>`,
   );
   w.document.close();
 }

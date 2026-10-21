@@ -78,7 +78,7 @@ export default function GraphView({
     if (!project) return [];
     const cards = project.cards
       .filter((c) => !c.deletedAt)
-      .map((c) => ({ id: `c:${c.id}`, label: c.type === 'start' ? 'Start' : c.title || 'Sin título' }));
+      .map((c) => ({ id: `c:${c.id}`, label: c.type === 'start' ? 'Start' : c.title || 'Nueva tarjeta' }));
     const codex = project.codex.map((e) => ({ id: `x:${e.id}`, label: `◈ ${e.name}` }));
     return [...cards, ...codex];
   }, [project]);
