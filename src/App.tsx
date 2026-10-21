@@ -18,7 +18,7 @@ import './App.css';
 import CardNode from './CardNode';
 import GroupNode from './GroupNode';
 import GraphView from './GraphView';
-import { currentProject, useStore } from './store';
+import { currentProject, runHistoryBatch, useStore } from './store';
 import {
   CARD_COLORS,
   CODEX_COLORS,
@@ -64,6 +64,7 @@ import {
   Paperclip,
   Plus,
   Printer,
+  Redo2,
   RotateCcw,
   Search,
   SquarePen,
@@ -402,8 +403,10 @@ function CardEditor({
 
   function save() {
     const id: string = cardId;
-    updateCard(id, collect());
-    saveRevision(id);
+    runHistoryBatch(() => {
+      updateCard(id, collect());
+      saveRevision(id);
+    });
     onChanged();
   }
 
@@ -1449,7 +1452,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <h3>El tablero</h3>
           <p>Cada proyecto es un lienzo infinito. Rueda o pellizca para zoom, arrastra el fondo para moverte.</p>
           <h3>Tarjetas</h3>
-          <p>Cada tarjeta es una escena o capítulo. Doble-click para editar resumen y contenido markdown. Click derecho para más opciones: duplicar, color, icono, quitar del flujo o eliminar.</p>
+          <p>Cada tarjeta es una escena o capítulo. Doble-click para editar resumen y contenido markdown. Click derecho para más opciones: duplicar, color, icono, quitar del flujo o eliminar. Mantén <kbd>Alt</kbd> al arrastrar para dejar una copia en el destino.</p>
           <h3>Conexiones</h3>
           <p>Arrastra desde el punto derecho de una tarjeta al punto izquierdo de otra. Suelta una tarjeta sobre una línea para insertarla en esa conexión, o sobre otra tarjeta para enlazarlas.</p>
           <h3>Start</h3>
@@ -1464,6 +1467,8 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <li><kbd>Ctrl+D</kbd> duplicar la tarjeta seleccionada</li>
             <li><kbd>Ctrl+Enter</kbd> guardar y cerrar el editor</li>
             <li><kbd>Supr</kbd> mandar la tarjeta a la papelera</li>
+            <li><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Mayús+Z</kbd> deshacer / rehacer</li>
+            <li><kbd>Ctrl</kbd>+click o arrastrar con <kbd>Mayús</kbd> seleccionar varias tarjetas y moverlas juntas</li>
           </ul>
         </div>
       </div>
@@ -1498,6 +1503,10 @@ function Board({ projectId }: { projectId: string }) {
   const ungroupAll = useStore((s) => s.ungroupAll);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
+  const canUndo = useStore((s) => s.past.length > 0);
+  const canRedo = useStore((s) => s.future.length > 0);
+  const undo = useStore((s) => s.undo);
+  const redo = useStore((s) => s.redo);
 
   const { screenToFlowPosition, setCenter, getNodes, getIntersectingNodes } = useReactFlow();
 
@@ -1529,6 +1538,7 @@ function Board({ projectId }: { projectId: string }) {
   activeTagsRef.current = activeTags;
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const altDragRef = useRef(false);
 
   const cards = useMemo(() => project?.cards.filter((c) => !c.deletedAt) ?? [], [project]);
   const trashedCount = (project?.cards ?? []).filter((c) => c.deletedAt).length;
@@ -1541,35 +1551,45 @@ function Board({ projectId }: { projectId: string }) {
     [],
   );
 
-  /* Refresca datos de nodos (contenido, colores, grupos, dim) preservando posiciones. */
+  /* Refresca datos de nodos (contenido, colores, grupos, dim) preservando
+     posiciones, y añade/elimina nodos según el proyecto (deshacer, papelera).
+     También sincroniza las aristas con las conexiones del store. */
   useEffect(() => {
     if (!project) return;
-    const byCard = new Map(project.cards.map((c) => [c.id, c]));
-    const byGroup = new Map(project.groups.map((g) => [g.id, g]));
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.type === 'group') {
-          const g = byGroup.get(n.id.slice(GROUP_PREFIX.length));
-          if (!g) return n;
-          return {
+    const groupHandlers = (g: Group) => ({
+      onRename: (name: string) => updateGroupRef.current(g.id, { name }),
+      onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) =>
+        handleGroupResize(g.id, rect),
+      onToggleLock: () => updateGroupRef.current(g.id, { locked: !g.locked }),
+    });
+    setNodes((nds) => {
+      const byId = new Map(nds.map((n) => [n.id, n]));
+      const next: Node[] = [];
+      for (const g of project.groups) {
+        const n = byId.get(groupNodeId(g.id));
+        if (n) {
+          next.push({
             ...n,
             draggable: !g.locked,
             style: { ...n.style, width: g.width, height: g.height },
-            data: {
-              ...n.data,
-              group: g,
-              onRename: (name: string) => updateGroupRef.current(g.id, { name }),
-              onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) =>
-                handleGroupResize(g.id, rect),
-              onToggleLock: () => updateGroupRef.current(g.id, { locked: !g.locked }),
-            },
-          };
+            data: { ...n.data, group: g, ...groupHandlers(g) },
+          });
+        } else {
+          next.push(toGroupNode(g, groupHandlers(g)));
         }
-        const c = byCard.get(n.id);
-        if (!c || c.deletedAt) return n;
-        return { ...n, data: { ...n.data, card: c, codex: project.codex, dimmed: isDimmed(c) } };
-      }),
-    );
+      }
+      for (const c of project.cards) {
+        if (c.deletedAt) continue;
+        const n = byId.get(c.id);
+        if (n) {
+          next.push({ ...n, data: { ...n.data, card: c, codex: project.codex, dimmed: isDimmed(c) } });
+        } else {
+          next.push(toCardNode(c, project.groups, project.codex, isDimmed(c)));
+        }
+      }
+      return next;
+    });
+    syncEdges();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
@@ -1663,13 +1683,15 @@ function Board({ projectId }: { projectId: string }) {
     groupId: string,
     rect: { x: number; y: number; width: number; height: number },
   ) {
-    updateGroup(groupId, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-    const all = getNodes();
-    for (const n of all) {
-      if (n.parentId === groupNodeId(groupId)) {
-        updateCard(n.id, { x: rect.x + n.position.x, y: rect.y + n.position.y });
+    runHistoryBatch(() => {
+      updateGroup(groupId, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+      const all = getNodes();
+      for (const n of all) {
+        if (n.parentId === groupNodeId(groupId)) {
+          updateCard(n.id, { x: rect.x + n.position.x, y: rect.y + n.position.y });
+        }
       }
-    }
+    });
   }
 
   const isValidConnection = useCallback((conn: RFConnection | Edge) => {
@@ -1702,9 +1724,11 @@ function Board({ projectId }: { projectId: string }) {
 
   const onNodesDelete = useCallback(
     (deleted: Node[]) => {
-      for (const n of deleted) {
-        if (n.type === 'card') trashCard(n.id);
-      }
+      runHistoryBatch(() => {
+        for (const n of deleted) {
+          if (n.type === 'card') trashCard(n.id);
+        }
+      });
       syncEdges();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1729,45 +1753,98 @@ function Board({ projectId }: { projectId: string }) {
       if (!p) return;
       if (node.type === 'group') {
         const gid = node.id.slice(GROUP_PREFIX.length);
-        st.updateGroup(gid, { x: node.position.x, y: node.position.y });
-        for (const n of all) {
-          if (n.parentId === node.id) {
-            st.updateCard(n.id, { x: node.position.x + n.position.x, y: node.position.y + n.position.y });
+        runHistoryBatch(() => {
+          st.updateGroup(gid, { x: node.position.x, y: node.position.y });
+          for (const n of all) {
+            if (n.parentId === node.id) {
+              st.updateCard(n.id, { x: node.position.x + n.position.x, y: node.position.y + n.position.y });
+            }
           }
-        }
+        });
         return;
       }
       const abs = absOf(node, all);
-      st.updateCard(node.id, { x: abs.x, y: abs.y });
       const card = p.cards.find((c) => c.id === node.id);
-      // Agrupar / desagrupar por intersección
-      const hit = getIntersectingNodes(node).filter((n) => n.type === 'group');
-      const target = hit.length > 0 ? hit[hit.length - 1] : undefined;
-      const targetGid = target ? target.id.slice(GROUP_PREFIX.length) : null;
-      if (targetGid !== (card?.groupId ?? null)) {
-        const g = targetGid ? p.groups.find((gr) => gr.id === targetGid) : undefined;
-        if (g) {
-          st.setCardGroup(node.id, g.id, abs.x - g.x, abs.y - g.y);
+
+      /* Alt+arrastrar: la original queda donde estaba (el nodo vuelve a su
+         posición) y la copia aparece donde se soltó, sin grupo. */
+      if (altDragRef.current && card && card.type !== 'start') {
+        altDragRef.current = false;
+        const revert = (id: string, x: number, y: number) => {
           setNodes((nds) =>
-            nds.map((n) =>
-              n.id === node.id
-                ? { ...n, parentId: groupNodeId(g.id), extent: 'parent' as const, position: { x: abs.x - g.x, y: abs.y - g.y } }
-                : n,
-            ),
+            nds.map((n) => {
+              if (n.id !== id) return n;
+              if (n.parentId) {
+                const gp = all.find((g) => g.id === n.parentId);
+                return { ...n, position: { x: x - (gp?.position.x ?? 0), y: y - (gp?.position.y ?? 0) } };
+              }
+              return { ...n, position: { x, y } };
+            }),
           );
-        } else {
-          st.setCardGroup(node.id, null, abs.x, abs.y);
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === node.id
-                ? { ...n, parentId: undefined, extent: undefined, position: abs }
-                : n,
-            ),
-          );
+        };
+        revert(node.id, card.x, card.y);
+        for (const n of all) {
+          if (n.id === node.id || n.type !== 'card' || !n.selected) continue;
+          const c2 = p.cards.find((c) => c.id === n.id);
+          if (c2 && !c2.deletedAt) revert(n.id, c2.x, c2.y);
+        }
+        if (Math.abs(abs.x - card.x) > 3 || Math.abs(abs.y - card.y) > 3) {
+          runHistoryBatch(() => {
+            const copy = st.duplicateCard(node.id);
+            if (!copy) return;
+            const positioned = { ...copy, groupId: null, x: abs.x, y: abs.y };
+            st.setCardGroup(copy.id, null, abs.x, abs.y);
+            const p2 = currentProject(useStore.getState());
+            if (p2) {
+              setNodes((nds) => [...nds, toCardNode(positioned, p2.groups, p2.codex, isDimmed(positioned))]);
+            }
+          });
         }
         return;
       }
-      handleCardDrop(node, all);
+      altDragRef.current = false;
+
+      /* Persistencia: nodo arrastrado + resto de selección (mover en lote),
+         agrupar/desagrupar por intersección y caídas especiales. */
+      runHistoryBatch(() => {
+        st.updateCard(node.id, { x: abs.x, y: abs.y });
+        for (const n of all) {
+          if (n.id === node.id || n.type !== 'card' || !n.selected) continue;
+          const c2 = p.cards.find((c) => c.id === n.id);
+          if (!c2 || c2.deletedAt) continue;
+          const pos = absOf(n, all);
+          if (Math.abs(pos.x - c2.x) < 0.5 && Math.abs(pos.y - c2.y) < 0.5) continue;
+          st.updateCard(n.id, { x: pos.x, y: pos.y });
+        }
+        // Agrupar / desagrupar por intersección
+        const hit = getIntersectingNodes(node).filter((n) => n.type === 'group');
+        const target = hit.length > 0 ? hit[hit.length - 1] : undefined;
+        const targetGid = target ? target.id.slice(GROUP_PREFIX.length) : null;
+        if (targetGid !== (card?.groupId ?? null)) {
+          const g = targetGid ? p.groups.find((gr) => gr.id === targetGid) : undefined;
+          if (g) {
+            st.setCardGroup(node.id, g.id, abs.x - g.x, abs.y - g.y);
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === node.id
+                  ? { ...n, parentId: groupNodeId(g.id), extent: 'parent' as const, position: { x: abs.x - g.x, y: abs.y - g.y } }
+                  : n,
+              ),
+            );
+          } else {
+            st.setCardGroup(node.id, null, abs.x, abs.y);
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === node.id
+                  ? { ...n, parentId: undefined, extent: undefined, position: abs }
+                  : n,
+              ),
+            );
+          }
+          return;
+        }
+        handleCardDrop(node, all);
+      });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getNodes, getIntersectingNodes, setNodes],
@@ -1796,6 +1873,26 @@ function Board({ projectId }: { projectId: string }) {
         }
       }
       if (e.key === 'Escape') setCtx(null);
+      // Deshacer / rehacer globales (si el foco está en un campo de texto,
+      // se deja el deshacer nativo del navegador).
+      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+        const t = e.target as HTMLElement | null;
+        const typing =
+          !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          if (typing) return;
+          e.preventDefault();
+          useStore.getState().undo();
+          return;
+        }
+        if (k === 'y' || (k === 'z' && e.shiftKey)) {
+          if (typing) return;
+          e.preventDefault();
+          useStore.getState().redo();
+          return;
+        }
+      }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -1933,6 +2030,12 @@ function Board({ projectId }: { projectId: string }) {
         <button className="btn btn-primary" onClick={() => setExportOpen(true)}>
           <FileDown size={16} /> Vista previa
         </button>
+        <button className="btn btn-icon" title="Deshacer (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
+          <Undo2 size={18} />
+        </button>
+        <button className="btn btn-icon" title="Rehacer (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo}>
+          <Redo2 size={18} />
+        </button>
         <button className="btn btn-icon" title="Cambiar tema" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
@@ -1976,9 +2079,14 @@ function Board({ projectId }: { projectId: string }) {
         }}
         onPaneClick={() => setCtx(null)}
         onMoveStart={() => setCtx(null)}
-        onNodeDragStart={() => setCtx(null)}
+        onNodeDragStart={(e, node) => {
+          setCtx(null);
+          altDragRef.current = e.altKey && node.type === 'card';
+        }}
         defaultEdgeOptions={{ type: 'default', animated: true }}
         deleteKeyCode={['Backspace', 'Delete']}
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
         zoomOnDoubleClick={false}
         minZoom={0.2}
         maxZoom={2.5}

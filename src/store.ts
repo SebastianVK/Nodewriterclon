@@ -13,10 +13,46 @@ import type {
 } from './types';
 import { nowIso, uid, CODEX_DEFAULT_COLOR, CODEX_DEFAULT_ICON } from './types';
 
+/** Instantánea de estado para deshacer/rehacer (por referencia: barato). */
+export interface HistoryEntry {
+  projects: Project[];
+  currentId: string | null;
+}
+
+const HISTORY_LIMIT = 60;
+let histDepth = 0;
+let histBatchOrigin: HistoryEntry | null = null;
+let histBatchPushed = false;
+
+/**
+ * Ejecuta varias acciones del store como UN SOLO paso de historial:
+ * la primera modificación de `projects` dentro del lote guarda el estado
+ * previo completo; las siguientes no generan pasos extra.
+ */
+export function runHistoryBatch(fn: () => void): void {
+  histDepth++;
+  if (histDepth === 1 && !histBatchOrigin) {
+    const s = useStore.getState();
+    histBatchOrigin = { projects: s.projects, currentId: s.currentId };
+    histBatchPushed = false;
+  }
+  try {
+    fn();
+  } finally {
+    histDepth--;
+    if (histDepth === 0) {
+      histBatchOrigin = null;
+      histBatchPushed = false;
+    }
+  }
+}
+
 interface StoryState {
   projects: Project[];
   currentId: string | null;
   theme: 'dark' | 'light';
+  past: HistoryEntry[];
+  future: HistoryEntry[];
 
   createProject: (name?: string) => Project;
   renameProject: (id: string, name: string) => void;
@@ -52,6 +88,9 @@ interface StoryState {
   restoreRevision: (cardId: string, revisionId: string) => void;
 
   toggleTheme: () => void;
+
+  undo: () => void;
+  redo: () => void;
 }
 
 function makeStart(x = 40, y = 220): Card {
@@ -158,11 +197,17 @@ export function currentProject(s: StoryState): Project | null {
 /** Ids `img://` referenciados por cualquier tarjeta (incluso en la papelera). */
 function validImageIds(state: StoryState): Set<string> {
   const ids = new Set<string>();
-  for (const p of state.projects) {
-    for (const c of p.cards) {
-      for (const id of collectImgIds(c.content)) ids.add(id);
+  const scan = (projects: Project[]) => {
+    for (const p of projects) {
+      for (const c of p.cards) {
+        for (const id of collectImgIds(c.content)) ids.add(id);
+      }
     }
-  }
+  };
+  scan(state.projects);
+  // El historial puede restaurar tarjetas con imágenes: no purgarlas.
+  for (const e of state.past) scan(e.projects);
+  for (const e of state.future) scan(e.projects);
   return ids;
 }
 
@@ -176,10 +221,36 @@ function scheduleImagePurge(): void {
 
 export const useStore = create<StoryState>()(
   persist(
-    (set, get) => ({
+    (rawSet, get) => {
+      /* Envuelve `set` para registrar historial de deshacer/rehacer.
+         Solo cuenta cambios reales de `projects`; `undo`/`redo` usan
+         `rawSet` y por eso no se auto-registran. La rehidratación de
+         persist toca el set externo, así que tampoco registra. */
+      const set: typeof rawSet = (partial, replace) => {
+        const before = get();
+        (rawSet as (p: unknown, r?: unknown) => void)(partial, replace);
+        const after = get();
+        if (before.projects === after.projects) return;
+        if (histDepth > 0) {
+          if (!histBatchPushed) {
+            histBatchPushed = true;
+            const origin = histBatchOrigin ?? {
+              projects: before.projects,
+              currentId: before.currentId,
+            };
+            rawSet((s) => ({ past: [...s.past, origin].slice(-HISTORY_LIMIT), future: [] }));
+          }
+          return;
+        }
+        const origin = { projects: before.projects, currentId: before.currentId };
+        rawSet((s) => ({ past: [...s.past, origin].slice(-HISTORY_LIMIT), future: [] }));
+      };
+      return {
       projects: [],
       currentId: null,
       theme: 'dark',
+      past: [],
+      future: [],
 
       createProject: (name = 'Nuevo proyecto') => {
         const p = name.trim() ? blankProject(name.trim()) : blankProject('Nuevo proyecto');
@@ -460,10 +531,36 @@ export const useStore = create<StoryState>()(
         ),
 
       toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
-    }),
+
+      undo: () => {
+        const s = get();
+        const prev = s.past[s.past.length - 1];
+        if (!prev) return;
+        rawSet({
+          past: s.past.slice(0, -1),
+          future: [{ projects: s.projects, currentId: s.currentId }, ...s.future].slice(0, HISTORY_LIMIT),
+          projects: prev.projects,
+          currentId: prev.currentId,
+        });
+      },
+
+      redo: () => {
+        const s = get();
+        const nxt = s.future[0];
+        if (!nxt) return;
+        rawSet({
+          past: [...s.past, { projects: s.projects, currentId: s.currentId }].slice(-HISTORY_LIMIT),
+          future: s.future.slice(1),
+          projects: nxt.projects,
+          currentId: nxt.currentId,
+        });
+      },
+      };
+    },
     {
       name: 'storygraph-v2',
       version: 2,
+      partialize: (s) => ({ projects: s.projects, currentId: s.currentId, theme: s.theme }),
       merge: (persisted, current) => {
         const p = persisted as unknown as Record<string, unknown>;
         if (p && Array.isArray(p.projects)) {
