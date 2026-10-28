@@ -18,15 +18,28 @@ export interface CardNodeData extends Record<string, unknown> {
 
 const MAX_TAGS = 3;
 
+/* Bordes invisibles de conexión (prototipo): no hay puntos, solo el borde
+   de la tarjeta. Son handles `source` en los 4 lados; con ConnectionMode.Loose
+   la dirección de la conexión la determina desde dónde arrastras. */
+function EdgeHandles() {
+  return (
+    <>
+      <Handle id="t" type="source" position={Position.Top} />
+      <Handle id="r" type="source" position={Position.Right} />
+      <Handle id="b" type="source" position={Position.Bottom} />
+      <Handle id="l" type="source" position={Position.Left} />
+    </>
+  );
+}
+
 function CardNodeComponent({ data, selected }: NodeProps) {
   const { card, codex, dimmed, fresh, dx = 0, dy = 0 } = data as unknown as CardNodeData;
   if (card.type === 'start') {
     return (
       <div className="card-node card-start">
-        <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
         <Flag size={16} />
         <span>Start</span>
-        <Handle type="source" position={Position.Right} />
+        <EdgeHandles />
       </div>
     );
   }
@@ -51,7 +64,6 @@ function CardNodeComponent({ data, selected }: NodeProps) {
       }}
     >
       <div className="card-shine" />
-      <Handle type="target" position={Position.Left} />
       <div className="card-bar" />
       <div className="card-body">
         {badgeLabel && (
@@ -90,7 +102,7 @@ function CardNodeComponent({ data, selected }: NodeProps) {
           })}
         </div>
       </div>
-      <Handle type="source" position={Position.Right} />
+      <EdgeHandles />
     </div>
   );
 }

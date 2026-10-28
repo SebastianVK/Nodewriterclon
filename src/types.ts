@@ -19,6 +19,9 @@ export interface Connection {
   id: string;
   source: string;
   target: string;
+  /** Borde por el que se agarró/soltó (t/r/b/l). Opcional: por defecto r→l. */
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
 }
 
 export interface Group {

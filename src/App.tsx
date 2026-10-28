@@ -8,6 +8,8 @@ import {
   useEdgesState,
   addEdge,
   useReactFlow,
+  useUpdateNodeInternals,
+  ConnectionMode,
   type Connection as RFConnection,
   type Edge,
   type Node,
@@ -136,8 +138,18 @@ function toGroupNode(
   };
 }
 
-function toEdge(source: string, target: string, id: string): Edge {
-  return { id, source, target, type: 'default', animated: true };
+/* Borde por defecto para conexiones guardadas sin handles (creadas antes del
+   UI 2.0 o desde la vista grafo): salida por la derecha, llegada por la izq. */
+function toEdge(source: string, target: string, id: string, sourceHandle?: string | null, targetHandle?: string | null): Edge {
+  return {
+    id,
+    source,
+    target,
+    sourceHandle: sourceHandle ?? 'r',
+    targetHandle: targetHandle ?? 'l',
+    type: 'default',
+    animated: true,
+  };
 }
 
 function download(filename: string, text: string, mime: string) {
@@ -1510,6 +1522,7 @@ function Board({ projectId }: { projectId: string }) {
   const redo = useStore((s) => s.redo);
 
   const { screenToFlowPosition, setCenter, getNodes, getIntersectingNodes } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
     (project?.groups.map((g) =>
@@ -1519,7 +1532,7 @@ function Board({ projectId }: { projectId: string }) {
     ),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    (project?.connections ?? []).map((cn) => toEdge(cn.source, cn.target, cn.id)),
+    (project?.connections ?? []).map((cn) => toEdge(cn.source, cn.target, cn.id, cn.sourceHandle, cn.targetHandle)),
   );
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1602,7 +1615,10 @@ function Board({ projectId }: { projectId: string }) {
     if (!p) return;
     setEdges((prev) => {
       const sel = new Set(prev.filter((e) => e.selected).map((e) => e.id));
-      return p.connections.map((cn) => ({ ...toEdge(cn.source, cn.target, cn.id), selected: sel.has(cn.id) }));
+      return p.connections.map((cn) => ({
+        ...toEdge(cn.source, cn.target, cn.id, cn.sourceHandle, cn.targetHandle),
+        selected: sel.has(cn.id),
+      }));
     });
   }
 
@@ -1715,9 +1731,14 @@ function Board({ projectId }: { projectId: string }) {
         setTimeout(() => setLoopWarn(false), 2500);
         return;
       }
-      const created = addConnection(source, target);
+      /* En Loose el arrastre define la dirección (de donde empiezas → donde
+         sueltas); guardamos los bordes para que la línea salga por el mismo
+         borde por el que se agarró, como en el prototipo. */
+      const created = addConnection(source, target, params.sourceHandle, params.targetHandle);
       if (created) {
-        setEdges((eds) => addEdge({ ...params, animated: true }, eds));
+        setEdges((eds) =>
+          addEdge({ ...params, id: created.id, sourceHandle: params.sourceHandle, targetHandle: params.targetHandle, animated: true }, eds),
+        );
       }
     },
     [addConnection, setEdges],
@@ -1919,20 +1940,27 @@ function Board({ projectId }: { projectId: string }) {
     addCardAt(pos.x, pos.y);
   }
 
-  /* Idea del composer: coloca en el semiplano superior la posición menos
-     concurrida y crea la tarjeta (+codex) en un solo paso de deshacer. */
+  /* Idea del composer: aparece justo encima del composer y halada hacia el
+     centro del lienzo; se elige la posición menos concurrida de un puñado de
+     candidatas muy próximas. */
   function createIdea(text: string, originScreen: { x: number; y: number }) {
     const origin = screenToFlowPosition(originScreen);
+    const center = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    // Punto de partida: encima del composer, tirando 30% hacia el centro.
+    const base = {
+      x: origin.x + (center.x - origin.x) * 0.3,
+      y: origin.y - 220,
+    };
     const busy = nodes
       .filter((n) => n.type === 'card')
       .map((n) => ({ x: n.position.x, y: n.position.y }));
-    let best = { x: origin.x, y: origin.y - 260, score: -1 };
-    for (let i = 0; i < 18; i++) {
-      const angle = Math.PI + Math.random() * Math.PI; // izquierda, arriba, derecha
-      const dist = 240 + Math.random() * 380;
-      const x = origin.x + Math.cos(angle) * dist * 1.5;
-      const y = origin.y + Math.sin(angle) * dist;
-      const score = Math.min(...busy.map((c) => Math.hypot(c.x - x, c.y - y)), 999);
+    let best = { x: base.x, y: base.y, score: -1 };
+    for (let i = 0; i < 12; i++) {
+      const x = base.x + (Math.random() - 0.5) * 340;
+      const y = base.y + (Math.random() - 0.5) * 150;
+      const score = busy.length
+        ? Math.min(...busy.map((c) => Math.hypot(c.x - x, c.y - y)))
+        : 999;
       if (score > best.score) best = { x, y, score };
     }
     const card = addIdea(best.x, best.y, text);
@@ -1942,6 +1970,10 @@ function Board({ projectId }: { projectId: string }) {
     const node = toCardNode(card, p.groups, p.codex, isDimmed(card));
     node.data = { ...node.data, fresh: true, dx: origin.x - best.x, dy: origin.y - best.y };
     setNodes((nds) => [...nds, node]);
+    /* La animación sg-deal transforma el nodo mientras xyflow mide los
+       handles: re-medimos al terminar para que las líneas no queden
+       desplazadas (antes solo se corregían al recargar). */
+    window.setTimeout(() => updateNodeInternals(card.id), 950);
     window.setTimeout(() => {
       setNodes((nds) => nds.map((n) => (n.id === card.id ? { ...n, data: { ...n.data, fresh: false } } : n)));
     }, 1500);
@@ -2120,6 +2152,8 @@ function Board({ projectId }: { projectId: string }) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
+        connectionMode={ConnectionMode.Loose}
+        connectionRadius={32}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDragStop={onNodeDragStop}

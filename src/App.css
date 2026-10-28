@@ -795,28 +795,54 @@ label.field-label {
   width: auto;
 }
 
-/* handles + controles como el original */
+/* Bordes invisibles de conexión (prototipo): no hay puntos, solo el borde
+   de la tarjeta reacciona con cursor crosshair e inicia el arrastre. */
 
 .board .react-flow__handle {
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  min-height: 18px;
-  background: var(--accent);
-  border: 3px solid var(--paper-card);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: crosshair;
+  z-index: 5;
 }
 
-.board .react-flow__handle::before {
-  content: "";
-  position: absolute;
-  top: -11px;
-  right: -11px;
-  bottom: -11px;
-  left: -11px;
+.board .react-flow__handle-left,
+.board .react-flow__handle-right {
+  width: 12px;
+  height: 100%;
+  min-width: 12px;
+  min-height: 0;
+  top: 0;
+  transform: none;
 }
 
-.board .react-flow__handle:hover {
-  background: var(--accent-hover);
+.board .react-flow__handle-left {
+  left: 0;
+  right: auto;
+}
+
+.board .react-flow__handle-right {
+  right: 0;
+  left: auto;
+}
+
+.board .react-flow__handle-top,
+.board .react-flow__handle-bottom {
+  height: 12px;
+  width: 100%;
+  min-height: 12px;
+  min-width: 0;
+  left: 0;
+  transform: none;
+}
+
+.board .react-flow__handle-top {
+  top: 0;
+}
+
+.board .react-flow__handle-bottom {
+  bottom: 0;
+  top: auto;
 }
 
 .board .react-flow__controls-button {

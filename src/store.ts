@@ -75,7 +75,12 @@ interface StoryState {
   removeFromFlow: (id: string) => void;
   setCardGroup: (id: string, groupId: string | null, x?: number, y?: number) => void;
 
-  addConnection: (source: string, target: string) => Connection | null;
+  addConnection: (
+    source: string,
+    target: string,
+    sourceHandle?: string | null,
+    targetHandle?: string | null,
+  ) => Connection | null;
   insertCardInto: (connectionId: string, cardId: string) => void;
   deleteConnection: (id: string) => void;
 
@@ -452,13 +457,13 @@ export const useStore = create<StoryState>()(
           }),
         ),
 
-      addConnection: (source, target) => {
+      addConnection: (source, target, sourceHandle, targetHandle) => {
         let created: Connection | null = null;
         set((s) => {
           const p = s.projects.find((pr) => pr.id === s.currentId);
           if (!p || source === target) return {};
           if (p.connections.some((cn) => cn.source === source && cn.target === target)) return {};
-          created = { id: uid(), source, target };
+          created = { id: uid(), source, target, sourceHandle, targetHandle };
           const cc = created;
           return withCurrent(s, (pr) => ({ connections: [...pr.connections, cc] }));
         });
