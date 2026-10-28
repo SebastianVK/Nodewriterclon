@@ -45,7 +45,7 @@ function CardNodeComponent({ data, selected }: NodeProps) {
               <Icon size={13} />
             </span>
           )}
-          <p className="card-title">{card.title.trim() || 'Sin título'}</p>
+          <p className="card-title">{card.title.trim() || 'Nueva tarjeta'}</p>
         </div>
         {card.summary && <p className="card-summary">{card.summary}</p>}
         {tags.length > 0 && (

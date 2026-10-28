@@ -18,7 +18,7 @@ import './App.css';
 import CardNode from './CardNode';
 import GroupNode from './GroupNode';
 import GraphView from './GraphView';
-import { currentProject, useStore } from './store';
+import { currentProject, runHistoryBatch, useStore } from './store';
 import {
   CARD_COLORS,
   CODEX_COLORS,
@@ -47,10 +47,12 @@ import {
   CircleQuestionMark,
   Copy,
   Download,
+  FileArchive,
   FileDown,
   FileText,
   Group as GroupIcon,
   Heading,
+  ImagePlus,
   Italic,
   Link2,
   List,
@@ -59,8 +61,10 @@ import {
   Minimize2,
   Moon,
   Network,
+  Paperclip,
   Plus,
   Printer,
+  Redo2,
   RotateCcw,
   Search,
   SquarePen,
@@ -74,7 +78,14 @@ import {
 } from 'lucide-react';
 import { CARD_ICONS, Ban, iconFor } from './icons';
 import { buildEpub, printDocument } from './epub';
-import { exportBackup, parseBackupJson, type ParsedBackup } from './backup';
+import {
+  exportBackup,
+  exportBackupZip,
+  parseBackupFile,
+  type BackupImage,
+  type ParsedBackup,
+} from './backup';
+import { collectImgIds, getImages, isImageFile, putImage, resolveImgRefs } from './images';
 
 const nodeTypes = { card: CardNode, group: GroupNode };
 const GROUP_PREFIX = 'group-';
@@ -185,7 +196,7 @@ function ProjectsPage() {
   const importProject = useStore((s) => s.importProject);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
-  const [pending, setPending] = useState<ParsedBackup | null>(null);
+  const [pending, setPending] = useState<(ParsedBackup & { images: BackupImage[] }) | null>(null);
   const [importError, setImportError] = useState('');
 
   return (
@@ -201,7 +212,7 @@ function ProjectsPage() {
               className="btn btn-secondary"
               onClick={() => document.getElementById('import-json-input')?.click()}
             >
-              Importar JSON
+              Importar JSON/ZIP
             </button>
             <button
               className="btn btn-primary"
@@ -214,23 +225,18 @@ function ProjectsPage() {
         <input
           id="import-json-input"
           type="file"
-          accept=".json,application/json"
+          accept=".json,.zip,application/json,application/zip"
           style={{ display: 'none' }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
             if (!f) return;
             setImportError('');
-            f.text().then(
-              (text) => {
-                try {
-                  setPending(parseBackupJson(text));
-                } catch (err) {
-                  setImportError(err instanceof Error ? err.message : 'No se pudo leer el archivo.');
-                }
-              },
-              () => setImportError('No se pudo leer el archivo.'),
-            );
+            parseBackupFile(f)
+              .then((r) => setPending({ ...r.parsed, images: r.images }))
+              .catch((err: unknown) =>
+                setImportError(err instanceof Error ? err.message : 'No se pudo leer el archivo.'),
+              );
           }}
         />
         {importError && <p className="warn">{importError}</p>}
@@ -286,7 +292,7 @@ function ProjectsPage() {
           })}
         </ul>
         {pending && (
-          <div className="modal-overlay" onClick={() => setPending(null)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setPending(null); }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>Importar proyecto</h2>
@@ -303,6 +309,9 @@ function ProjectsPage() {
                   <li>{pending.counts.cards} tarjeta{pending.counts.cards === 1 ? '' : 's'}</li>
                   <li>{pending.counts.connections} conexiones</li>
                   <li>{pending.counts.groups} grupos · {pending.counts.codex} entradas codex · {pending.counts.revisions} revisiones</li>
+                  {pending.images.length > 0 && (
+                    <li>{pending.images.length} imagen{pending.images.length === 1 ? '' : 'es'}</li>
+                  )}
                 </ul>
                 <p className="muted">Se creará como proyecto nuevo con ids frescos. Tus proyectos existentes no se modifican.</p>
               </div>
@@ -310,7 +319,7 @@ function ProjectsPage() {
                 <button className="btn btn-secondary" onClick={() => setPending(null)}>Cancelar</button>
                 <button
                   className="btn btn-primary"
-                  onClick={() => { importProject(pending.project); setPending(null); }}
+                  onClick={() => { importProject(pending.project, pending.images); setPending(null); }}
                 >
                   Importar
                 </button>
@@ -364,6 +373,7 @@ function CardEditor({
   const [focus, setFocus] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const codex = project?.codex ?? [];
   const allTags = useMemo(() => {
@@ -393,8 +403,10 @@ function CardEditor({
 
   function save() {
     const id: string = cardId;
-    updateCard(id, collect());
-    saveRevision(id);
+    runHistoryBatch(() => {
+      updateCard(id, collect());
+      saveRevision(id);
+    });
     onChanged();
   }
 
@@ -439,8 +451,40 @@ function CardEditor({
     });
   }
 
+  function insertMd(snippet: string) {
+    const ta = taRef.current;
+    const before = content;
+    const s = ta?.selectionStart ?? before.length;
+    const e = ta?.selectionEnd ?? s;
+    const nlL = s > 0 && before[s - 1] !== '\n' ? '\n' : '';
+    const nlR = e < before.length && before[e] !== '\n' ? '\n' : '';
+    const text = `${nlL}${snippet}${nlR}`;
+    const next = before.slice(0, s) + text + before.slice(e);
+    setContent(next);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const pos = s + text.length;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    });
+  }
+
+  async function insertImages(files: File[]) {
+    const imgs = files.filter(isImageFile).slice(0, 10);
+    const parts: string[] = [];
+    for (const f of imgs) {
+      try {
+        const { id, name } = await putImage(f);
+        parts.push(`![${name.replace(/\.[^.]+$/, '')}](img://${id})`);
+      } catch {
+        /* formato no soportado o sin espacio */
+      }
+    }
+    if (parts.length) insertMd(parts.join('\n\n'));
+  }
+
   return (
-    <div className="modal-overlay" onClick={done}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) done(); }}>
       <div
         className={`modal card-editor-modal${focus ? ' focus' : ''}`}
         onClick={(e) => e.stopPropagation()}
@@ -470,7 +514,13 @@ function CardEditor({
           {!focus && (
             <>
               <label className="field-label">Título</label>
-              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <input
+                className="input"
+                value={title}
+                placeholder="Nueva tarjeta"
+                {...(card.title.trim() ? {} : { autoFocus: true })}
+                onChange={(e) => setTitle(e.target.value)}
+              />
               <label className="field-label">
                 Resumen <span className="muted">{summary.length}/{SUMMARY_MAX}</span>
               </label>
@@ -629,6 +679,23 @@ function CardEditor({
             <button className="btn btn-icon" title="Enlace" onClick={() => applyFormat('link')}>
               <Link2 size={16} />
             </button>
+            <button
+              className="btn btn-icon"
+              title="Insertar imagen (archivo; también puedes pegar o arrastrar)"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip size={16} />
+            </button>
+            <button
+              className="btn btn-icon"
+              title="Insertar imagen desde URL"
+              onClick={() => {
+                const u = window.prompt('URL de la imagen (http/https):');
+                if (u && u.trim()) insertMd(`![imagen](${u.trim()})`);
+              }}
+            >
+              <ImagePlus size={16} />
+            </button>
             <span className="card-words">{wordCount(content)} palabras</span>
           </div>
           <textarea
@@ -637,6 +704,34 @@ function CardEditor({
             value={content}
             placeholder="Escribe en markdown…"
             onChange={(e) => setContent(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files ?? []);
+              if (files.some(isImageFile)) {
+                e.preventDefault();
+                void insertImages(files);
+              }
+            }}
+            onDragOver={(e) => {
+              if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+              e.preventDefault();
+              const files = Array.from(e.dataTransfer.files ?? []);
+              if (files.some(isImageFile)) void insertImages(files);
+            }}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const fs = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              if (fs.length) void insertImages(fs);
+            }}
           />
         </div>
         <div className="modal-footer">
@@ -732,7 +827,7 @@ function RevisionsModal({
   const selected = revisions.find((r) => r.id === selectedId) ?? null;
 
   return (
-    <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); onClose(); }}>
+    <div className="modal-overlay" onMouseDown={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal revision-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Historial de revisiones</h2>
@@ -836,7 +931,7 @@ function CodexModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal codex-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Codex de historia</h2>
@@ -1032,7 +1127,7 @@ function TrashPanel({ onClose, onRestored }: { onClose: () => void; onRestored: 
   );
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal trash-modal" onClick={(e) => e.stopPropagation()}>
       <div className="modal-header">
         <h2>Papelera</h2>
@@ -1138,7 +1233,7 @@ function SearchPalette({
   }
 
   return (
-    <div className="modal-overlay palette-overlay" onClick={onClose}>
+    <div className="modal-overlay palette-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div
         className="palette"
         onClick={(e) => e.stopPropagation()}
@@ -1206,12 +1301,24 @@ function ExportModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'preview' | 'sequence' | 'export'>('preview');
   const [withSummaries, setWithSummaries] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [busyZip, setBusyZip] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<Record<string, string>>({});
   const seq = useMemo(
     () => (project ? orderFromStart(project.cards, project.connections) : []),
     [project],
   );
+  const body = useMemo(() => seq.filter((c) => c.type !== 'start'), [seq]);
+  useEffect(() => {
+    if (tab !== 'preview') return;
+    let alive = true;
+    (async () => {
+      const out: Record<string, string> = {};
+      for (const c of body) out[c.id] = await resolveImgRefs(markdownToHtml(c.content));
+      if (alive) setPreviewHtml(out);
+    })();
+    return () => { alive = false; };
+  }, [tab, body]);
   if (!project) return null;
-  const body = seq.filter((c) => c.type !== 'start');
   const totalWords = body.reduce((n, c) => n + wordCount(c.content), 0);
 
   async function downloadEpub() {
@@ -1224,8 +1331,20 @@ function ExportModal({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function downloadZip() {
+    setBusyZip(true);
+    try {
+      const ids = new Set(project!.cards.flatMap((c) => collectImgIds(c.content)));
+      const images = await getImages([...ids]);
+      const blob = await exportBackupZip(project!, images);
+      downloadBlob(`${project!.name}.storygraph.zip`, blob);
+    } finally {
+      setBusyZip(false);
+    }
+  }
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal export-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Vista previa y exportación — {project.name}</h2>
@@ -1251,7 +1370,13 @@ function ExportModal({ onClose }: { onClose: () => void }) {
               {body.map((c) => (
                 <div key={c.id} className="prose-block">
                   {withSummaries && c.summary && <p className="prose-summary">{c.summary}</p>}
-                  <div dangerouslySetInnerHTML={{ __html: markdownToHtml(c.content) }} />
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        previewHtml[c.id] ??
+                        (c.content.includes('img://') ? '' : markdownToHtml(c.content)),
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -1295,11 +1420,14 @@ function ExportModal({ onClose }: { onClose: () => void }) {
                 <button className="btn btn-secondary" disabled={busy} onClick={downloadEpub}>
                   <BookOpen size={16} /> {busy ? 'Generando…' : 'EPUB'}
                 </button>
+                <button className="btn btn-secondary" disabled={busyZip} onClick={downloadZip}>
+                  <FileArchive size={16} /> {busyZip ? 'Generando…' : 'Backup .zip'}
+                </button>
                 <button
                   className="btn btn-secondary"
                   onClick={() => download(`${project.name}.storygraph.json`, exportBackup(project), 'application/json')}
                 >
-                  <Download size={16} /> Backup JSON
+                  <Download size={16} /> JSON (sin imágenes)
                 </button>
               </div>
             </>
@@ -1314,7 +1442,7 @@ function ExportModal({ onClose }: { onClose: () => void }) {
 
 function HelpModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Cómo funciona StoryGraph</h2>
@@ -1324,7 +1452,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <h3>El tablero</h3>
           <p>Cada proyecto es un lienzo infinito. Rueda o pellizca para zoom, arrastra el fondo para moverte.</p>
           <h3>Tarjetas</h3>
-          <p>Cada tarjeta es una escena o capítulo. Doble-click para editar resumen y contenido markdown. Click derecho para más opciones: duplicar, color, icono, quitar del flujo o eliminar.</p>
+          <p>Cada tarjeta es una escena o capítulo. Doble-click para editar resumen y contenido markdown. Click derecho para más opciones: duplicar, color, icono, quitar del flujo o eliminar. Mantén <kbd>Alt</kbd> al arrastrar para dejar una copia en el destino.</p>
           <h3>Conexiones</h3>
           <p>Arrastra desde el punto derecho de una tarjeta al punto izquierdo de otra. Suelta una tarjeta sobre una línea para insertarla en esa conexión, o sobre otra tarjeta para enlazarlas.</p>
           <h3>Start</h3>
@@ -1339,6 +1467,8 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <li><kbd>Ctrl+D</kbd> duplicar la tarjeta seleccionada</li>
             <li><kbd>Ctrl+Enter</kbd> guardar y cerrar el editor</li>
             <li><kbd>Supr</kbd> mandar la tarjeta a la papelera</li>
+            <li><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Mayús+Z</kbd> deshacer / rehacer</li>
+            <li><kbd>Ctrl</kbd>+click o arrastrar con <kbd>Mayús</kbd> seleccionar varias tarjetas y moverlas juntas</li>
           </ul>
         </div>
       </div>
@@ -1373,6 +1503,10 @@ function Board({ projectId }: { projectId: string }) {
   const ungroupAll = useStore((s) => s.ungroupAll);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
+  const canUndo = useStore((s) => s.past.length > 0);
+  const canRedo = useStore((s) => s.future.length > 0);
+  const undo = useStore((s) => s.undo);
+  const redo = useStore((s) => s.redo);
 
   const { screenToFlowPosition, setCenter, getNodes, getIntersectingNodes } = useReactFlow();
 
@@ -1404,6 +1538,7 @@ function Board({ projectId }: { projectId: string }) {
   activeTagsRef.current = activeTags;
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const altDragRef = useRef(false);
 
   const cards = useMemo(() => project?.cards.filter((c) => !c.deletedAt) ?? [], [project]);
   const trashedCount = (project?.cards ?? []).filter((c) => c.deletedAt).length;
@@ -1416,35 +1551,45 @@ function Board({ projectId }: { projectId: string }) {
     [],
   );
 
-  /* Refresca datos de nodos (contenido, colores, grupos, dim) preservando posiciones. */
+  /* Refresca datos de nodos (contenido, colores, grupos, dim) preservando
+     posiciones, y añade/elimina nodos según el proyecto (deshacer, papelera).
+     También sincroniza las aristas con las conexiones del store. */
   useEffect(() => {
     if (!project) return;
-    const byCard = new Map(project.cards.map((c) => [c.id, c]));
-    const byGroup = new Map(project.groups.map((g) => [g.id, g]));
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (n.type === 'group') {
-          const g = byGroup.get(n.id.slice(GROUP_PREFIX.length));
-          if (!g) return n;
-          return {
+    const groupHandlers = (g: Group) => ({
+      onRename: (name: string) => updateGroupRef.current(g.id, { name }),
+      onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) =>
+        handleGroupResize(g.id, rect),
+      onToggleLock: () => updateGroupRef.current(g.id, { locked: !g.locked }),
+    });
+    setNodes((nds) => {
+      const byId = new Map(nds.map((n) => [n.id, n]));
+      const next: Node[] = [];
+      for (const g of project.groups) {
+        const n = byId.get(groupNodeId(g.id));
+        if (n) {
+          next.push({
             ...n,
             draggable: !g.locked,
             style: { ...n.style, width: g.width, height: g.height },
-            data: {
-              ...n.data,
-              group: g,
-              onRename: (name: string) => updateGroupRef.current(g.id, { name }),
-              onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) =>
-                handleGroupResize(g.id, rect),
-              onToggleLock: () => updateGroupRef.current(g.id, { locked: !g.locked }),
-            },
-          };
+            data: { ...n.data, group: g, ...groupHandlers(g) },
+          });
+        } else {
+          next.push(toGroupNode(g, groupHandlers(g)));
         }
-        const c = byCard.get(n.id);
-        if (!c || c.deletedAt) return n;
-        return { ...n, data: { ...n.data, card: c, codex: project.codex, dimmed: isDimmed(c) } };
-      }),
-    );
+      }
+      for (const c of project.cards) {
+        if (c.deletedAt) continue;
+        const n = byId.get(c.id);
+        if (n) {
+          next.push({ ...n, data: { ...n.data, card: c, codex: project.codex, dimmed: isDimmed(c) } });
+        } else {
+          next.push(toCardNode(c, project.groups, project.codex, isDimmed(c)));
+        }
+      }
+      return next;
+    });
+    syncEdges();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
@@ -1538,13 +1683,15 @@ function Board({ projectId }: { projectId: string }) {
     groupId: string,
     rect: { x: number; y: number; width: number; height: number },
   ) {
-    updateGroup(groupId, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-    const all = getNodes();
-    for (const n of all) {
-      if (n.parentId === groupNodeId(groupId)) {
-        updateCard(n.id, { x: rect.x + n.position.x, y: rect.y + n.position.y });
+    runHistoryBatch(() => {
+      updateGroup(groupId, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+      const all = getNodes();
+      for (const n of all) {
+        if (n.parentId === groupNodeId(groupId)) {
+          updateCard(n.id, { x: rect.x + n.position.x, y: rect.y + n.position.y });
+        }
       }
-    }
+    });
   }
 
   const isValidConnection = useCallback((conn: RFConnection | Edge) => {
@@ -1577,9 +1724,11 @@ function Board({ projectId }: { projectId: string }) {
 
   const onNodesDelete = useCallback(
     (deleted: Node[]) => {
-      for (const n of deleted) {
-        if (n.type === 'card') trashCard(n.id);
-      }
+      runHistoryBatch(() => {
+        for (const n of deleted) {
+          if (n.type === 'card') trashCard(n.id);
+        }
+      });
       syncEdges();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1604,45 +1753,98 @@ function Board({ projectId }: { projectId: string }) {
       if (!p) return;
       if (node.type === 'group') {
         const gid = node.id.slice(GROUP_PREFIX.length);
-        st.updateGroup(gid, { x: node.position.x, y: node.position.y });
-        for (const n of all) {
-          if (n.parentId === node.id) {
-            st.updateCard(n.id, { x: node.position.x + n.position.x, y: node.position.y + n.position.y });
+        runHistoryBatch(() => {
+          st.updateGroup(gid, { x: node.position.x, y: node.position.y });
+          for (const n of all) {
+            if (n.parentId === node.id) {
+              st.updateCard(n.id, { x: node.position.x + n.position.x, y: node.position.y + n.position.y });
+            }
           }
-        }
+        });
         return;
       }
       const abs = absOf(node, all);
-      st.updateCard(node.id, { x: abs.x, y: abs.y });
       const card = p.cards.find((c) => c.id === node.id);
-      // Agrupar / desagrupar por intersección
-      const hit = getIntersectingNodes(node).filter((n) => n.type === 'group');
-      const target = hit.length > 0 ? hit[hit.length - 1] : undefined;
-      const targetGid = target ? target.id.slice(GROUP_PREFIX.length) : null;
-      if (targetGid !== (card?.groupId ?? null)) {
-        const g = targetGid ? p.groups.find((gr) => gr.id === targetGid) : undefined;
-        if (g) {
-          st.setCardGroup(node.id, g.id, abs.x - g.x, abs.y - g.y);
+
+      /* Alt+arrastrar: la original queda donde estaba (el nodo vuelve a su
+         posición) y la copia aparece donde se soltó, sin grupo. */
+      if (altDragRef.current && card && card.type !== 'start') {
+        altDragRef.current = false;
+        const revert = (id: string, x: number, y: number) => {
           setNodes((nds) =>
-            nds.map((n) =>
-              n.id === node.id
-                ? { ...n, parentId: groupNodeId(g.id), extent: 'parent' as const, position: { x: abs.x - g.x, y: abs.y - g.y } }
-                : n,
-            ),
+            nds.map((n) => {
+              if (n.id !== id) return n;
+              if (n.parentId) {
+                const gp = all.find((g) => g.id === n.parentId);
+                return { ...n, position: { x: x - (gp?.position.x ?? 0), y: y - (gp?.position.y ?? 0) } };
+              }
+              return { ...n, position: { x, y } };
+            }),
           );
-        } else {
-          st.setCardGroup(node.id, null, abs.x, abs.y);
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === node.id
-                ? { ...n, parentId: undefined, extent: undefined, position: abs }
-                : n,
-            ),
-          );
+        };
+        revert(node.id, card.x, card.y);
+        for (const n of all) {
+          if (n.id === node.id || n.type !== 'card' || !n.selected) continue;
+          const c2 = p.cards.find((c) => c.id === n.id);
+          if (c2 && !c2.deletedAt) revert(n.id, c2.x, c2.y);
+        }
+        if (Math.abs(abs.x - card.x) > 3 || Math.abs(abs.y - card.y) > 3) {
+          runHistoryBatch(() => {
+            const copy = st.duplicateCard(node.id);
+            if (!copy) return;
+            const positioned = { ...copy, groupId: null, x: abs.x, y: abs.y };
+            st.setCardGroup(copy.id, null, abs.x, abs.y);
+            const p2 = currentProject(useStore.getState());
+            if (p2) {
+              setNodes((nds) => [...nds, toCardNode(positioned, p2.groups, p2.codex, isDimmed(positioned))]);
+            }
+          });
         }
         return;
       }
-      handleCardDrop(node, all);
+      altDragRef.current = false;
+
+      /* Persistencia: nodo arrastrado + resto de selección (mover en lote),
+         agrupar/desagrupar por intersección y caídas especiales. */
+      runHistoryBatch(() => {
+        st.updateCard(node.id, { x: abs.x, y: abs.y });
+        for (const n of all) {
+          if (n.id === node.id || n.type !== 'card' || !n.selected) continue;
+          const c2 = p.cards.find((c) => c.id === n.id);
+          if (!c2 || c2.deletedAt) continue;
+          const pos = absOf(n, all);
+          if (Math.abs(pos.x - c2.x) < 0.5 && Math.abs(pos.y - c2.y) < 0.5) continue;
+          st.updateCard(n.id, { x: pos.x, y: pos.y });
+        }
+        // Agrupar / desagrupar por intersección
+        const hit = getIntersectingNodes(node).filter((n) => n.type === 'group');
+        const target = hit.length > 0 ? hit[hit.length - 1] : undefined;
+        const targetGid = target ? target.id.slice(GROUP_PREFIX.length) : null;
+        if (targetGid !== (card?.groupId ?? null)) {
+          const g = targetGid ? p.groups.find((gr) => gr.id === targetGid) : undefined;
+          if (g) {
+            st.setCardGroup(node.id, g.id, abs.x - g.x, abs.y - g.y);
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === node.id
+                  ? { ...n, parentId: groupNodeId(g.id), extent: 'parent' as const, position: { x: abs.x - g.x, y: abs.y - g.y } }
+                  : n,
+              ),
+            );
+          } else {
+            st.setCardGroup(node.id, null, abs.x, abs.y);
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === node.id
+                  ? { ...n, parentId: undefined, extent: undefined, position: abs }
+                  : n,
+              ),
+            );
+          }
+          return;
+        }
+        handleCardDrop(node, all);
+      });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getNodes, getIntersectingNodes, setNodes],
@@ -1671,6 +1873,26 @@ function Board({ projectId }: { projectId: string }) {
         }
       }
       if (e.key === 'Escape') setCtx(null);
+      // Deshacer / rehacer globales (si el foco está en un campo de texto,
+      // se deja el deshacer nativo del navegador).
+      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+        const t = e.target as HTMLElement | null;
+        const typing =
+          !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          if (typing) return;
+          e.preventDefault();
+          useStore.getState().undo();
+          return;
+        }
+        if (k === 'y' || (k === 'z' && e.shiftKey)) {
+          if (typing) return;
+          e.preventDefault();
+          useStore.getState().redo();
+          return;
+        }
+      }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -1808,6 +2030,12 @@ function Board({ projectId }: { projectId: string }) {
         <button className="btn btn-primary" onClick={() => setExportOpen(true)}>
           <FileDown size={16} /> Vista previa
         </button>
+        <button className="btn btn-icon" title="Deshacer (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
+          <Undo2 size={18} />
+        </button>
+        <button className="btn btn-icon" title="Rehacer (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo}>
+          <Redo2 size={18} />
+        </button>
         <button className="btn btn-icon" title="Cambiar tema" onClick={toggleTheme}>
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
@@ -1851,9 +2079,14 @@ function Board({ projectId }: { projectId: string }) {
         }}
         onPaneClick={() => setCtx(null)}
         onMoveStart={() => setCtx(null)}
-        onNodeDragStart={() => setCtx(null)}
+        onNodeDragStart={(e, node) => {
+          setCtx(null);
+          altDragRef.current = e.altKey && node.type === 'card';
+        }}
         defaultEdgeOptions={{ type: 'default', animated: true }}
         deleteKeyCode={['Backspace', 'Delete']}
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
         zoomOnDoubleClick={false}
         minZoom={0.2}
         maxZoom={2.5}

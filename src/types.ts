@@ -179,7 +179,7 @@ export function wordCount(text: string): number {
 }
 
 export function cardLabel(card: Pick<Card, 'title'>): string {
-  return card.title.trim() || 'Sin título';
+  return card.title.trim() || 'Nueva tarjeta';
 }
 
 export function cardTags(tags: string[] | null | undefined): string[] {
@@ -260,11 +260,30 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => div[c]);
 }
 
+/** Fuentes permitidas en ![](): refs internas img://, http(s) y data de png/jpeg/gif/webp. Bloquea SVG. */
+export function safeImgSrc(src: string): string | null {
+  const s = (src || '').trim();
+  if (/^img:\/\/[A-Za-z0-9_-]+$/.test(s)) return s;
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(s)) return s;
+  return null;
+}
+
 function inlineMd(s: string): string {
   let out = escapeHtml(s);
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  out = out.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, src: string) => {
+    const safe = safeImgSrc(src);
+    return safe ? `<img src="${safe}" alt="${alt}" loading="lazy">` : '';
+  });
+  out = out.replace(/\[(.+?)\]\((.+?)\)/g, (_m, label: string, href: string) => {
+    const h = href.trim();
+    if (/^(https?:\/\/|mailto:|#)/i.test(h)) {
+      return `<a href="${h}" target="_blank" rel="noopener">${label}</a>`;
+    }
+    return label;
+  });
   return out;
 }
 
