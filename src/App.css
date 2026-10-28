@@ -337,28 +337,111 @@ label.field-label {
 
 .card-node {
   --card-color: #2563eb;
+  --mx: 50%;
+  --my: 50%;
+  position: relative;
   display: flex;
   align-items: stretch;
   width: 220px;
-  background: var(--paper-card);
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(26, 26, 26, 0.12);
-  border: 2px solid transparent;
+  background: var(--g-fill), var(--card);
+  backdrop-filter: blur(16px) saturate(160%);
+  border-radius: 14px;
+  box-shadow: var(--g-hi), 0 16px 40px rgba(10, 8, 30, 0.22);
+  border: 1px solid var(--g-edge);
   overflow: hidden;
   cursor: grab;
   font-size: 13px;
 }
 
-[data-theme="dark"] .card-node {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+[data-theme='dark'] .card-node {
+  box-shadow: var(--g-hi), 0 16px 40px rgba(10, 8, 30, 0.35);
 }
 
 .card-node.selected {
   border-color: var(--accent);
+  box-shadow: var(--g-hi), 0 0 0 3px var(--accent-pale), 0 16px 40px rgba(10, 8, 30, 0.28);
 }
 
 .card-node.dimmed {
   opacity: 0.25;
+}
+
+/* resplandor que sigue al cursor (prototipo) */
+.card-shine {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  background: radial-gradient(170px circle at var(--mx) var(--my), var(--accent), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 3;
+}
+
+.card-node:hover .card-shine {
+  opacity: 1;
+}
+
+/* badge mono de tipo (codex) */
+.card-type {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font: 500 10px var(--font-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #cfc6ff;
+  background: rgba(150, 130, 255, 0.16);
+}
+
+.card-type.type-location {
+  color: #7ae6dc;
+  background: rgba(60, 200, 190, 0.14);
+}
+
+.card-type.type-item {
+  color: #f2b58a;
+  background: rgba(230, 150, 100, 0.16);
+}
+
+.card-type.type-lore {
+  color: #f6a9c8;
+  background: rgba(210, 95, 155, 0.16);
+}
+
+.card-type.type-other {
+  color: #d3d0dc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme='light'] .card-type {
+  color: #4a37b8;
+  background: rgba(110, 90, 230, 0.13);
+}
+
+[data-theme='light'] .card-type.type-location {
+  color: #0b6c65;
+  background: rgba(20, 150, 140, 0.14);
+}
+
+[data-theme='light'] .card-type.type-item {
+  color: #92480f;
+  background: rgba(210, 120, 50, 0.16);
+}
+
+[data-theme='light'] .card-type.type-lore {
+  color: #a1255f;
+  background: rgba(210, 95, 155, 0.14);
+}
+
+[data-theme='light'] .card-type.type-other {
+  color: #46425a;
+  background: rgba(60, 50, 90, 0.1);
 }
 
 .card-bar {

@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Flag } from 'lucide-react';
 import type { Card, CodexEntry } from './types';
-import { cardTags, wordCount } from './types';
+import { CODEX_TYPES, cardTags, wordCount } from './types';
 import { cardText, findMentions } from './mentions';
 import { iconFor } from './icons';
 
@@ -31,14 +31,28 @@ function CardNodeComponent({ data, selected }: NodeProps) {
   const mentionIds = findMentions(cardText(card), codex);
   const mentioned = codex.filter((e) => mentionIds.includes(e.id));
   const Icon = iconFor(card.icon);
+  const badgeType = mentioned[0];
+  const badgeLabel = badgeType
+    ? CODEX_TYPES.find((t) => t.key === badgeType.type)?.label ?? badgeType.type
+    : null;
   return (
     <div
       className={`card-node${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}`}
       style={{ ['--card-color' as string]: card.color }}
+      onPointerMove={(e) => {
+        const el = e.currentTarget;
+        const r = el.getBoundingClientRect();
+        el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+        el.style.setProperty('--my', `${e.clientY - r.top}px`);
+      }}
     >
+      <div className="card-shine" />
       <Handle type="target" position={Position.Left} />
       <div className="card-bar" />
       <div className="card-body">
+        {badgeLabel && (
+          <span className={`card-type type-${badgeType.type}`}>{badgeLabel}</span>
+        )}
         <div className="card-head">
           {Icon && (
             <span className="card-icon">
