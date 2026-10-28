@@ -2144,3 +2144,111 @@ kbd {
   z-index: 5;
   font-size: 0.75rem;
 }
+
+/* ============ liquid glass (variante opcional, UI 2.0) ============ */
+
+/* Filtro SVG de refraccion (feTurbulence + feDisplacementMap), definido en App.tsx. */
+.liquid-filter {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+[data-style='liquid'] .card-node {
+  border-radius: 26px;
+  backdrop-filter: url(#liquid) blur(14px) saturate(190%) brightness(1.06);
+  -webkit-backdrop-filter: blur(14px) saturate(190%) brightness(1.06);
+}
+
+[data-style='liquid'][data-theme='light'] .card-node {
+  box-shadow: var(--g-hi), 0 14px 36px rgba(70, 50, 130, 0.18);
+}
+
+[data-style='liquid'] .card-shine {
+  border-radius: 26px;
+}
+
+/* Luz especular superior (rim light) en cada superficie. */
+[data-style='liquid'] .card-node::after,
+[data-style='liquid'] .modal::after,
+[data-style='liquid'] .palette::after,
+[data-style='liquid'] .toolbar::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 4px;
+  height: 34%;
+  border-radius: 22px 22px 60% 60%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+
+[data-style='liquid'][data-theme='light'] .card-node::after,
+[data-style='liquid'][data-theme='light'] .modal::after,
+[data-style='liquid'][data-theme='light'] .palette::after,
+[data-style='liquid'][data-theme='light'] .toolbar::after {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.6), transparent);
+}
+
+/* El contenido pinta por encima del rim light. */
+[data-style='liquid'] .card-node > .card-bar,
+[data-style='liquid'] .card-node > .card-body,
+[data-style='liquid'] .modal > *,
+[data-style='liquid'] .palette > *,
+[data-style='liquid'] .toolbar > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Superficies grandes: refraccion suave + radio generoso. */
+[data-style='liquid'] .toolbar,
+[data-style='liquid'] .modal,
+[data-style='liquid'] .palette,
+[data-style='liquid'] .ctx-menu,
+[data-style='liquid'] .composer-inner,
+[data-style='liquid'] .seg,
+[data-style='liquid'] .group-header,
+[data-style='liquid'] .project-row {
+  backdrop-filter: url(#liquid) blur(14px) saturate(190%) brightness(1.06);
+  -webkit-backdrop-filter: blur(14px) saturate(190%) brightness(1.06);
+}
+
+[data-style='liquid'] .modal,
+[data-style='liquid'] .palette {
+  border-radius: 26px;
+}
+
+[data-style='liquid'] .composer,
+[data-style='liquid'] .prism-border {
+  border-radius: 28px;
+}
+
+[data-style='liquid'] .composer-inner {
+  border-radius: 26px;
+}
+
+[data-style='liquid'] .composer-mark {
+  border-radius: 50%;
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, 0.7), 0 4px 14px rgba(110, 90, 230, 0.35);
+}
+
+[data-style='liquid'] .card-node,
+[data-style='liquid'] .modal,
+[data-style='liquid'] .palette,
+[data-style='liquid'] .toolbar {
+  text-shadow: none;
+}
+
+[data-style='liquid'][data-theme='dark'] .card-node .card-summary,
+[data-style='liquid'][data-theme='dark'] .card-node .card-title {
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* Sin movimiento: la refraccion es estatica, pero el sistema lo pide. */
+@media (prefers-reduced-motion: reduce) {
+  [data-style='liquid'] .prism-border i {
+    animation: none;
+  }
+}

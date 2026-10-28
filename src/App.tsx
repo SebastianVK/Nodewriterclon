@@ -2437,6 +2437,13 @@ export default function App() {
   return (
     <ReactFlowProvider>
       <div className="backdrop" aria-hidden="true">
+        <svg className="liquid-filter" focusable="false">
+          <filter id="liquid" x="-10%" y="-10%" width="120%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="4" result="n" />
+            <feGaussianBlur in="n" stdDeviation="2" result="nb" />
+            <feDisplacementMap in="SourceGraphic" in2="nb" scale="38" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </svg>
         <div className="bg-gradient" />
         <div className="blob blob-a" />
         <div className="blob blob-b" />
