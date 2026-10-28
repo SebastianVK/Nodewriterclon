@@ -58,7 +58,6 @@ import {
   Lock,
   Maximize2,
   Minimize2,
-  Moon,
   Network,
   Paperclip,
   Plus,
@@ -67,7 +66,6 @@ import {
   RotateCcw,
   Search,
   SquarePen,
-  Sun,
   Trash,
   Undo2,
   Ungroup,
@@ -1502,6 +1500,8 @@ function Board({ projectId }: { projectId: string }) {
   const ungroupAll = useStore((s) => s.ungroupAll);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
+  const glass = useStore((s) => s.style);
+  const setGlass = useStore((s) => s.setStyle);
   const canUndo = useStore((s) => s.past.length > 0);
   const canRedo = useStore((s) => s.future.length > 0);
   const undo = useStore((s) => s.undo);
@@ -2035,9 +2035,24 @@ function Board({ projectId }: { projectId: string }) {
         <button className="btn btn-icon" title="Rehacer (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo}>
           <Redo2 size={18} />
         </button>
-        <button className="btn btn-icon" title="Cambiar tema" onClick={toggleTheme}>
-          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
+        <div className="seg" role="group" aria-label="Tema">
+          <span className="seg-thumb" style={{ transform: `translateX(${theme === 'dark' ? 100 : 0}%)` }} />
+          <button className={theme === 'light' ? 'on' : ''} onClick={() => theme === 'dark' && toggleTheme()}>
+            Claro
+          </button>
+          <button className={theme === 'dark' ? 'on' : ''} onClick={() => theme === 'light' && toggleTheme()}>
+            Oscuro
+          </button>
+        </div>
+        <div className="seg" role="group" aria-label="Estilo de superficie" title="Estilo de superficie">
+          <span className="seg-thumb" style={{ transform: `translateX(${glass === 'liquid' ? 100 : 0}%)` }} />
+          <button className={glass === 'normal' ? 'on' : ''} onClick={() => setGlass('normal')}>
+            Normal
+          </button>
+          <button className={glass === 'liquid' ? 'on' : ''} onClick={() => setGlass('liquid')}>
+            Liquid glass
+          </button>
+        </div>
         <button className="btn btn-icon" title="Papelera" onClick={() => setTrashOpen(true)}>
           <Trash size={18} />
           {trashedCount > 0 && <span className="badge">{trashedCount}</span>}
