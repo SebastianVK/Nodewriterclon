@@ -51,6 +51,7 @@ interface StoryState {
   projects: Project[];
   currentId: string | null;
   theme: 'dark' | 'light';
+  style: 'normal' | 'liquid';
   past: HistoryEntry[];
   future: HistoryEntry[];
 
@@ -88,6 +89,7 @@ interface StoryState {
   restoreRevision: (cardId: string, revisionId: string) => void;
 
   toggleTheme: () => void;
+  setStyle: (style: 'normal' | 'liquid') => void;
 
   undo: () => void;
   redo: () => void;
@@ -249,6 +251,7 @@ export const useStore = create<StoryState>()(
       projects: [],
       currentId: null,
       theme: 'dark',
+      style: 'normal',
       past: [],
       future: [],
 
@@ -532,6 +535,8 @@ export const useStore = create<StoryState>()(
 
       toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
 
+      setStyle: (style) => set({ style }),
+
       undo: () => {
         const s = get();
         const prev = s.past[s.past.length - 1];
@@ -560,7 +565,7 @@ export const useStore = create<StoryState>()(
     {
       name: 'storygraph-v2',
       version: 2,
-      partialize: (s) => ({ projects: s.projects, currentId: s.currentId, theme: s.theme }),
+      partialize: (s) => ({ projects: s.projects, currentId: s.currentId, theme: s.theme, style: s.style }),
       merge: (persisted, current) => {
         const p = persisted as unknown as Record<string, unknown>;
         if (p && Array.isArray(p.projects)) {

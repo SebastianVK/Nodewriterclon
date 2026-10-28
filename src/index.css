@@ -1,40 +1,199 @@
+/* ===== fuentes self-hosted (offline) ===== */
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/manrope-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/manrope-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/manrope-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/manrope-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/manrope-600-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/manrope-600-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/manrope-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/manrope-700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/dmmono-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/dmmono-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/dmmono-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/dmmono-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ===== tokens UI 2.0 (paleta Brainstorming Canvas) ===== */
+
 :root {
-  --ink: #1a1a1a;
-  --ink-mid: #4a4a4a;
-  --ink-faint: #8a8a8a;
-  --paper: #fafaf9;
-  --paper-dark: #f0efec;
-  --paper-card: #ffffff;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-pale: #eff4ff;
-  --rule: #e5e5e5;
+  /* tinta */
+  --ink: #1d1830;
+  --ink-mid: #4b455e;
+  --ink-faint: #7b7494;
+  --text: #1d1830;
+  --muted: #4b455e;
+  /* superficies */
+  --paper: #f1ecff;
+  --paper-dark: #e6dfff;
+  --paper-card: rgba(255, 255, 255, 0.94);
+  --panel: rgba(255, 255, 255, 0.97);
+  --card: rgba(255, 255, 255, 0.94);
+  --rule: rgba(43, 35, 75, 0.18);
+  --line: rgba(43, 35, 75, 0.18);
+  /* acento */
+  --accent: #5a45d6;
+  --accent-hover: #4a36bd;
+  --accent-pale: rgba(90, 69, 214, 0.12);
   --danger: #dc2626;
-  --danger-pale: #fef2f2;
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-  --radius: 8px;
-  --radius-lg: 14px;
-  --shadow: 0 2px 12px rgba(26, 26, 26, 0.08);
-  --shadow-lg: 0 8px 32px rgba(26, 26, 26, 0.18);
+  --danger-pale: rgba(220, 38, 38, 0.08);
+  /* tipografía */
+  --font-ui: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  /* forma */
+  --radius: 10px;
+  --radius-lg: 18px;
+  --shadow: 0 8px 24px rgba(70, 50, 130, 0.14);
+  --shadow-lg: 0 18px 45px rgba(70, 50, 130, 0.2);
+  /* backdrop */
+  --bg1: #f1ecff;
+  --bg2: #dff3f2;
+  --bg3: #fbe6ee;
+  --b1: #a592ff;
+  --b2: #6fdcd1;
+  --b3: #ffb2cf;
+  --blob-op: 0.65;
+  --grid-dot: rgba(43, 35, 75, 0.18);
+  /* glass normal */
+  --g-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.4));
+  --g-edge: rgba(255, 255, 255, 0.9);
+  --g-hi: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(255, 255, 255, 0.3);
   font-family: var(--font-ui);
   color-scheme: light dark;
 }
 
-[data-theme="dark"] {
-  --ink: #eeeeec;
-  --ink-mid: #b0b0ac;
-  --ink-faint: #767672;
-  --paper: #18181a;
-  --paper-dark: #222224;
-  --paper-card: #26262a;
-  --accent: #4f8cff;
-  --accent-hover: #6fa1ff;
-  --accent-pale: #1d2a42;
-  --rule: #38383c;
+[data-theme='dark'] {
+  --ink: #f5f2ff;
+  --ink-mid: #a9a6ba;
+  --ink-faint: #7e7a92;
+  --text: #f5f2ff;
+  --muted: #a9a6ba;
+  --paper: #0f1018;
+  --paper-dark: #232136;
+  --paper-card: rgba(30, 31, 42, 0.82);
+  --panel: rgba(22, 23, 32, 0.94);
+  --card: rgba(30, 31, 42, 0.82);
+  --rule: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.12);
+  --accent: #b3a6ff;
+  --accent-hover: #c9bfff;
+  --accent-pale: rgba(179, 166, 255, 0.16);
   --danger: #f47171;
-  --danger-pale: #3a2020;
-  --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.55);
+  --danger-pale: rgba(244, 113, 113, 0.12);
+  --shadow: 0 8px 24px rgba(8, 6, 25, 0.4);
+  --shadow-lg: 0 18px 50px rgba(8, 6, 25, 0.5);
+  --bg1: #0f1018;
+  --bg2: #1c1740;
+  --bg3: #0b2a30;
+  --b1: #6c52e8;
+  --b2: #1fb5a8;
+  --b3: #d25f9b;
+  --blob-op: 0.5;
+  --grid-dot: rgba(255, 255, 255, 0.12);
+  --g-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04));
+  --g-edge: rgba(255, 255, 255, 0.22);
+  --g-hi: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Liquid glass: refracción fuerte y rim light (estilo del prototipo) */
+[data-style='liquid'][data-theme='dark'] {
+  --card: rgba(255, 255, 255, 0.07);
+  --panel: rgba(255, 255, 255, 0.09);
+  --paper-card: rgba(255, 255, 255, 0.07);
+  --g-fill: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.03) 45%, rgba(255, 255, 255, 0.1));
+  --g-edge: rgba(255, 255, 255, 0.35);
+  --g-hi: inset 1.5px 1.5px 1px -0.5px rgba(255, 255, 255, 0.7), inset -1.5px -1.5px 1px -0.5px rgba(255, 255, 255, 0.35), inset 0 0 22px rgba(255, 255, 255, 0.08);
+}
+[data-style='liquid'][data-theme='light'] {
+  --card: rgba(255, 255, 255, 0.28);
+  --panel: rgba(255, 255, 255, 0.38);
+  --paper-card: rgba(255, 255, 255, 0.4);
+  --g-fill: linear-gradient(145deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.5));
+  --g-edge: rgba(255, 255, 255, 0.95);
+  --g-hi: inset 1.5px 1.5px 1px -0.5px #fff, inset -1.5px -1.5px 1px -0.5px rgba(255, 255, 255, 0.8), inset 0 0 22px rgba(255, 255, 255, 0.35);
 }
 
 * {

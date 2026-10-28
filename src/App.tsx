@@ -2364,9 +2364,11 @@ function Shell() {
 
 export default function App() {
   const theme = useStore((s) => s.theme);
+  const style = useStore((s) => s.style);
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+    document.documentElement.setAttribute('data-style', style);
+  }, [theme, style]);
   return (
     <ReactFlowProvider>
       <Shell />
