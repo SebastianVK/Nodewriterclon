@@ -5,14 +5,107 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  background: transparent;
 }
 
-[data-theme="dark"] .board {
-  background: #141414;
+/* ============ fondo animado (backdrop UI 2.0) ============ */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
 }
 
-[data-theme="light"] .board {
-  background: var(--paper);
+.backdrop .bg-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, var(--bg1), var(--bg2), var(--bg3), var(--bg1));
+  background-size: 300% 300%;
+  animation: sg-shift 9s ease-in-out infinite;
+}
+
+@keyframes sg-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.backdrop .blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: var(--blob-op);
+  will-change: transform;
+}
+
+.backdrop .blob-a {
+  width: 52vw;
+  height: 52vw;
+  left: -10vw;
+  top: -20vw;
+  background: var(--b1);
+  animation: sg-moveA 7s ease-in-out infinite alternate;
+}
+
+.backdrop .blob-b {
+  width: 46vw;
+  height: 46vw;
+  right: -12vw;
+  bottom: -18vw;
+  background: var(--b2);
+  animation: sg-moveB 8s ease-in-out infinite alternate;
+}
+
+.backdrop .blob-c {
+  width: 34vw;
+  height: 34vw;
+  left: 38vw;
+  top: 28vh;
+  background: var(--b3);
+  opacity: calc(var(--blob-op) * 0.6);
+  animation: sg-moveC 10s ease-in-out infinite alternate;
+}
+
+@keyframes sg-moveA {
+  to {
+    transform: translate(30vw, 22vh) scale(1.2);
+  }
+}
+
+@keyframes sg-moveB {
+  to {
+    transform: translate(-32vw, -18vh) scale(1.15);
+  }
+}
+
+@keyframes sg-moveC {
+  0% {
+    transform: translate(-20vw, 10vh);
+  }
+  100% {
+    transform: translate(18vw, -22vh) scale(1.3);
+  }
+}
+
+.backdrop .canvas-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.55;
+}
+
+/* Guarda de rendimiento: sin movimiento continuo si el sistema lo pide. */
+@media (prefers-reduced-motion: reduce) {
+  .backdrop .bg-gradient,
+  .backdrop .blob {
+    animation: none;
+  }
 }
 
 .warn {

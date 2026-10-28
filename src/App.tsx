@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
-  Background,
   Controls,
   MiniMap,
   useNodesState,
@@ -2093,7 +2092,6 @@ function Board({ projectId }: { projectId: string }) {
         fitView
         colorMode={theme}
       >
-        <Background gap={24} size={1.5} />
         <Controls showInteractive={false} />
         <MiniMap
           pannable
@@ -2371,6 +2369,13 @@ export default function App() {
   }, [theme, style]);
   return (
     <ReactFlowProvider>
+      <div className="backdrop" aria-hidden="true">
+        <div className="bg-gradient" />
+        <div className="blob blob-a" />
+        <div className="blob blob-b" />
+        <div className="blob blob-c" />
+        <div className="canvas-grid" />
+      </div>
       <Shell />
     </ReactFlowProvider>
   );
