@@ -239,6 +239,7 @@ label.field-label {
   z-index: 10;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.6rem;
   background: var(--g-fill), var(--panel);
   border: 1px solid var(--g-edge);
@@ -246,6 +247,25 @@ label.field-label {
   box-shadow: var(--g-hi), var(--shadow-lg);
   backdrop-filter: blur(24px) saturate(170%);
   padding: 0.6rem 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    gap: 0.4rem;
+    padding: 0.5rem;
+  }
+  .toolbar .btn-secondary {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.82rem;
+  }
+  .seg button {
+    min-width: 56px;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+  .project-name {
+    max-width: 140px;
+  }
 }
 
 .project-name {
@@ -2032,10 +2052,11 @@ kbd {
   width: 240px;
   max-height: calc(100% - 140px);
   overflow-y: auto;
-  background: var(--paper-card);
-  border: 1px solid var(--rule);
+  background: var(--g-fill), var(--panel);
+  backdrop-filter: blur(24px) saturate(170%);
+  border: 1px solid var(--g-edge);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--g-hi), var(--shadow);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
