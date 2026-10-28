@@ -333,6 +333,186 @@ label.field-label {
   box-shadow: inset 0 1px 0 #fff, 0 2px 8px rgba(70, 50, 130, 0.2);
 }
 
+/* ============ composer de ideas (UI 2.0) ============ */
+
+.composer {
+  position: absolute;
+  z-index: 12;
+  left: 50%;
+  bottom: 28px;
+  width: 280px;
+  height: 56px;
+  border-radius: 18px;
+  transform: translateX(-50%);
+  transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.45s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.35s;
+  box-shadow: 0 18px 50px rgba(8, 6, 25, 0.35);
+}
+
+.composer:hover {
+  transform: translateX(-50%) translateY(-3px);
+}
+
+.composer.active {
+  width: 520px;
+  height: 150px;
+}
+
+/* Anillo: gradiente cónico giratorio recortado a un marco de 2px con máscara. */
+.prism-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.55;
+  transition: opacity 0.3s;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.composer.active .prism-border {
+  opacity: 1;
+}
+
+.prism-border i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 900px;
+  height: 900px;
+  margin: -450px 0 0 -450px;
+  background: conic-gradient(from 0deg, #5fe0d4, #9a86ff, #f09bc8, #f2cf7c, #5fe0d4);
+  animation: sg-spin 3.5s linear infinite;
+}
+
+@keyframes sg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.composer-inner {
+  position: absolute;
+  inset: 2px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--g-fill), var(--panel);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  box-shadow: var(--g-hi);
+}
+
+.composer-mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #17151d;
+  background: linear-gradient(135deg, #b5a5ff, #66d8ce);
+}
+
+.composer-mark svg {
+  width: 18px;
+  fill: currentColor;
+}
+
+.composer.active .composer-mark {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.composer-idle {
+  margin-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.composer-idle strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.composer-idle span {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.composer-input-wrap {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  margin-left: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.composer-input-wrap textarea {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  outline: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.composer-input-wrap textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+.composer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.composer-footer button {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--rule);
+  color: var(--ink-faint);
+  font: 500 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.composer-footer button.ready {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .composer.active {
+    width: calc(100vw - 32px);
+    left: 16px;
+    transform: none;
+  }
+  .composer:hover {
+    transform: none;
+  }
+}
+
 /* ============ nodos tarjeta ============ */
 
 .card-node {
@@ -387,8 +567,7 @@ label.field-label {
 }
 
 /* badge mono de tipo (codex) */
-.card-type {
-  display: inline-block;
+.card-type {  display: inline-block;
   align-self: flex-start;
   padding: 3px 7px;
   border-radius: 5px;
@@ -442,6 +621,39 @@ label.field-label {
 [data-theme='light'] .card-type.type-other {
   color: #46425a;
   background: rgba(60, 50, 90, 0.1);
+}
+
+/* tarjeta recién creada por el composer: vuela desde el composer y destella */
+.card-node.fresh {
+  animation: sg-deal 0.85s cubic-bezier(0.16, 0.85, 0.25, 1.05), sg-glow 1.5s ease-out;
+}
+
+@keyframes sg-deal {
+  0% {
+    translate: var(--dx) var(--dy);
+    opacity: 0;
+    scale: 0.45;
+    rotate: -14deg;
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    rotate: 3deg;
+    scale: 1.04;
+  }
+  100% {
+    translate: 0 0;
+    scale: 1;
+    rotate: 0deg;
+  }
+}
+
+@keyframes sg-glow {
+  40% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent), 0 0 44px var(--accent);
+  }
 }
 
 .card-bar {

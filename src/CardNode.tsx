@@ -10,12 +10,16 @@ export interface CardNodeData extends Record<string, unknown> {
   card: Card;
   codex: CodexEntry[];
   dimmed: boolean;
+  /** Recién creada por el composer: animación de entrada (deal). */
+  fresh?: boolean;
+  dx?: number;
+  dy?: number;
 }
 
 const MAX_TAGS = 3;
 
 function CardNodeComponent({ data, selected }: NodeProps) {
-  const { card, codex, dimmed } = data as unknown as CardNodeData;
+  const { card, codex, dimmed, fresh, dx = 0, dy = 0 } = data as unknown as CardNodeData;
   if (card.type === 'start') {
     return (
       <div className="card-node card-start">
@@ -37,8 +41,8 @@ function CardNodeComponent({ data, selected }: NodeProps) {
     : null;
   return (
     <div
-      className={`card-node${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}`}
-      style={{ ['--card-color' as string]: card.color }}
+      className={`card-node${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}${fresh ? ' fresh' : ''}`}
+      style={{ ['--card-color' as string]: card.color, ['--dx' as string]: `${dx}px`, ['--dy' as string]: `${dy}px` }}
       onPointerMove={(e) => {
         const el = e.currentTarget;
         const r = el.getBoundingClientRect();

@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 import './App.css';
 import CardNode from './CardNode';
 import GroupNode from './GroupNode';
+import { IdeaComposer } from './IdeaComposer';
 import GraphView from './GraphView';
 import { currentProject, runHistoryBatch, useStore } from './store';
 import {
@@ -1485,6 +1486,7 @@ function Board({ projectId }: { projectId: string }) {
   const renameProject = useStore((s) => s.renameProject);
   const openProject = useStore((s) => s.openProject);
   const addCard = useStore((s) => s.addCard);
+  const addIdea = useStore((s) => s.addIdea);
   const updateCard = useStore((s) => s.updateCard);
   const duplicateCard = useStore((s) => s.duplicateCard);
   const trashCard = useStore((s) => s.trashCard);
@@ -1917,6 +1919,34 @@ function Board({ projectId }: { projectId: string }) {
     addCardAt(pos.x, pos.y);
   }
 
+  /* Idea del composer: coloca en el semiplano superior la posición menos
+     concurrida y crea la tarjeta (+codex) en un solo paso de deshacer. */
+  function createIdea(text: string, originScreen: { x: number; y: number }) {
+    const origin = screenToFlowPosition(originScreen);
+    const busy = nodes
+      .filter((n) => n.type === 'card')
+      .map((n) => ({ x: n.position.x, y: n.position.y }));
+    let best = { x: origin.x, y: origin.y - 260, score: -1 };
+    for (let i = 0; i < 18; i++) {
+      const angle = Math.PI + Math.random() * Math.PI; // izquierda, arriba, derecha
+      const dist = 240 + Math.random() * 380;
+      const x = origin.x + Math.cos(angle) * dist * 1.5;
+      const y = origin.y + Math.sin(angle) * dist;
+      const score = Math.min(...busy.map((c) => Math.hypot(c.x - x, c.y - y)), 999);
+      if (score > best.score) best = { x, y, score };
+    }
+    const card = addIdea(best.x, best.y, text);
+    if (!card) return;
+    const p = liveProject();
+    if (!p) return;
+    const node = toCardNode(card, p.groups, p.codex, isDimmed(card));
+    node.data = { ...node.data, fresh: true, dx: origin.x - best.x, dy: origin.y - best.y };
+    setNodes((nds) => [...nds, node]);
+    window.setTimeout(() => {
+      setNodes((nds) => nds.map((n) => (n.id === card.id ? { ...n, data: { ...n.data, fresh: false } } : n)));
+    }, 1500);
+  }
+
   function addGroupCenter() {
     const pos = screenToFlowPosition({ x: window.innerWidth / 2 - 160, y: window.innerHeight / 2 - 110 });
     const g = addGroup(pos.x, pos.y);
@@ -2137,6 +2167,8 @@ function Board({ projectId }: { projectId: string }) {
           }}
         />
       </ReactFlow>
+
+      <IdeaComposer onCreate={createIdea} />
 
       {ctx && (
         <div className="ctx-menu" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
