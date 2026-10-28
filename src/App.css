@@ -602,16 +602,34 @@ label.field-label {
   display: none;
 }
 
-/* animación de flujo en las conexiones */
+/* animación de flujo en las conexiones (UI 2.0) */
+
+.sg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.board .react-flow__edge-path,
+.board .react-flow__connection-path {
+  stroke: url(#sg-edge-grad);
+  stroke-width: 2;
+  marker-end: url(#sg-arrow);
+}
 
 .board .react-flow__edge.animated path.react-flow__edge-path {
-  stroke-dasharray: 7 5;
-  animation: edgeflow 0.6s linear infinite;
+  stroke-dasharray: 7 9;
+  animation: edgeflow 1s linear infinite;
+}
+
+.board .react-flow__edge.selected .react-flow__edge-path {
+  filter: drop-shadow(0 0 4px var(--accent));
 }
 
 @keyframes edgeflow {
   to {
-    stroke-dashoffset: -12;
+    stroke-dashoffset: -16;
   }
 }
 

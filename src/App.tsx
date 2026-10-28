@@ -2062,6 +2062,26 @@ function Board({ projectId }: { projectId: string }) {
         </button>
       </div>
 
+      <svg className="sg-defs" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="sg-edge-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#8a76ff" />
+            <stop offset="100%" stopColor="#25bfb2" />
+          </linearGradient>
+          <marker
+            id="sg-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#25bfb2" />
+          </marker>
+        </defs>
+      </svg>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}
