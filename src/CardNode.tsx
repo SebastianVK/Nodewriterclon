@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Flag } from 'lucide-react';
 import type { Card, CodexEntry } from './types';
-import { cardTags, wordCount } from './types';
+import { CODEX_TYPES, cardTags, wordCount } from './types';
 import { cardText, findMentions } from './mentions';
 import { iconFor } from './icons';
 
@@ -10,19 +10,36 @@ export interface CardNodeData extends Record<string, unknown> {
   card: Card;
   codex: CodexEntry[];
   dimmed: boolean;
+  /** Recién creada por el composer: animación de entrada (deal). */
+  fresh?: boolean;
+  dx?: number;
+  dy?: number;
 }
 
 const MAX_TAGS = 3;
 
+/* Bordes invisibles de conexión (prototipo): no hay puntos, solo el borde
+   de la tarjeta. Son handles `source` en los 4 lados; con ConnectionMode.Loose
+   la dirección de la conexión la determina desde dónde arrastras. */
+function EdgeHandles() {
+  return (
+    <>
+      <Handle id="t" type="source" position={Position.Top} />
+      <Handle id="r" type="source" position={Position.Right} />
+      <Handle id="b" type="source" position={Position.Bottom} />
+      <Handle id="l" type="source" position={Position.Left} />
+    </>
+  );
+}
+
 function CardNodeComponent({ data, selected }: NodeProps) {
-  const { card, codex, dimmed } = data as unknown as CardNodeData;
+  const { card, codex, dimmed, fresh, dx = 0, dy = 0 } = data as unknown as CardNodeData;
   if (card.type === 'start') {
     return (
       <div className="card-node card-start">
-        <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
         <Flag size={16} />
         <span>Start</span>
-        <Handle type="source" position={Position.Right} />
+        <EdgeHandles />
       </div>
     );
   }
@@ -31,14 +48,27 @@ function CardNodeComponent({ data, selected }: NodeProps) {
   const mentionIds = findMentions(cardText(card), codex);
   const mentioned = codex.filter((e) => mentionIds.includes(e.id));
   const Icon = iconFor(card.icon);
+  const badgeType = mentioned[0];
+  const badgeLabel = badgeType
+    ? CODEX_TYPES.find((t) => t.key === badgeType.type)?.label ?? badgeType.type
+    : null;
   return (
     <div
-      className={`card-node${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}`}
-      style={{ ['--card-color' as string]: card.color }}
+      className={`card-node${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}${fresh ? ' fresh' : ''}`}
+      style={{ ['--card-color' as string]: card.color, ['--dx' as string]: `${dx}px`, ['--dy' as string]: `${dy}px` }}
+      onPointerMove={(e) => {
+        const el = e.currentTarget;
+        const r = el.getBoundingClientRect();
+        el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+        el.style.setProperty('--my', `${e.clientY - r.top}px`);
+      }}
     >
-      <Handle type="target" position={Position.Left} />
+      <div className="card-shine" />
       <div className="card-bar" />
       <div className="card-body">
+        {badgeLabel && (
+          <span className={`card-type type-${badgeType.type}`}>{badgeLabel}</span>
+        )}
         <div className="card-head">
           {Icon && (
             <span className="card-icon">
@@ -72,7 +102,7 @@ function CardNodeComponent({ data, selected }: NodeProps) {
           })}
         </div>
       </div>
-      <Handle type="source" position={Position.Right} />
+      <EdgeHandles />
     </div>
   );
 }

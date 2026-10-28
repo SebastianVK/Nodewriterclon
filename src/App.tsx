@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
-  Background,
   Controls,
   MiniMap,
   useNodesState,
   useEdgesState,
   addEdge,
   useReactFlow,
+  useUpdateNodeInternals,
+  ConnectionMode,
   type Connection as RFConnection,
   type Edge,
   type Node,
@@ -17,6 +18,7 @@ import '@xyflow/react/dist/style.css';
 import './App.css';
 import CardNode from './CardNode';
 import GroupNode from './GroupNode';
+import { IdeaComposer } from './IdeaComposer';
 import GraphView from './GraphView';
 import { currentProject, runHistoryBatch, useStore } from './store';
 import {
@@ -59,7 +61,6 @@ import {
   Lock,
   Maximize2,
   Minimize2,
-  Moon,
   Network,
   Paperclip,
   Plus,
@@ -68,7 +69,6 @@ import {
   RotateCcw,
   Search,
   SquarePen,
-  Sun,
   Trash,
   Undo2,
   Ungroup,
@@ -138,8 +138,18 @@ function toGroupNode(
   };
 }
 
-function toEdge(source: string, target: string, id: string): Edge {
-  return { id, source, target, type: 'default', animated: true };
+/* Borde por defecto para conexiones guardadas sin handles (creadas antes del
+   UI 2.0 o desde la vista grafo): salida por la derecha, llegada por la izq. */
+function toEdge(source: string, target: string, id: string, sourceHandle?: string | null, targetHandle?: string | null): Edge {
+  return {
+    id,
+    source,
+    target,
+    sourceHandle: sourceHandle ?? 'r',
+    targetHandle: targetHandle ?? 'l',
+    type: 'default',
+    animated: true,
+  };
 }
 
 function download(filename: string, text: string, mime: string) {
@@ -1488,6 +1498,7 @@ function Board({ projectId }: { projectId: string }) {
   const renameProject = useStore((s) => s.renameProject);
   const openProject = useStore((s) => s.openProject);
   const addCard = useStore((s) => s.addCard);
+  const addIdea = useStore((s) => s.addIdea);
   const updateCard = useStore((s) => s.updateCard);
   const duplicateCard = useStore((s) => s.duplicateCard);
   const trashCard = useStore((s) => s.trashCard);
@@ -1503,12 +1514,15 @@ function Board({ projectId }: { projectId: string }) {
   const ungroupAll = useStore((s) => s.ungroupAll);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
+  const glass = useStore((s) => s.style);
+  const setGlass = useStore((s) => s.setStyle);
   const canUndo = useStore((s) => s.past.length > 0);
   const canRedo = useStore((s) => s.future.length > 0);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
 
   const { screenToFlowPosition, setCenter, getNodes, getIntersectingNodes } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
     (project?.groups.map((g) =>
@@ -1518,7 +1532,7 @@ function Board({ projectId }: { projectId: string }) {
     ),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    (project?.connections ?? []).map((cn) => toEdge(cn.source, cn.target, cn.id)),
+    (project?.connections ?? []).map((cn) => toEdge(cn.source, cn.target, cn.id, cn.sourceHandle, cn.targetHandle)),
   );
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1601,7 +1615,10 @@ function Board({ projectId }: { projectId: string }) {
     if (!p) return;
     setEdges((prev) => {
       const sel = new Set(prev.filter((e) => e.selected).map((e) => e.id));
-      return p.connections.map((cn) => ({ ...toEdge(cn.source, cn.target, cn.id), selected: sel.has(cn.id) }));
+      return p.connections.map((cn) => ({
+        ...toEdge(cn.source, cn.target, cn.id, cn.sourceHandle, cn.targetHandle),
+        selected: sel.has(cn.id),
+      }));
     });
   }
 
@@ -1714,9 +1731,14 @@ function Board({ projectId }: { projectId: string }) {
         setTimeout(() => setLoopWarn(false), 2500);
         return;
       }
-      const created = addConnection(source, target);
+      /* En Loose el arrastre define la dirección (de donde empiezas → donde
+         sueltas); guardamos los bordes para que la línea salga por el mismo
+         borde por el que se agarró, como en el prototipo. */
+      const created = addConnection(source, target, params.sourceHandle, params.targetHandle);
       if (created) {
-        setEdges((eds) => addEdge({ ...params, animated: true }, eds));
+        setEdges((eds) =>
+          addEdge({ ...params, id: created.id, sourceHandle: params.sourceHandle, targetHandle: params.targetHandle, animated: true }, eds),
+        );
       }
     },
     [addConnection, setEdges],
@@ -1918,6 +1940,45 @@ function Board({ projectId }: { projectId: string }) {
     addCardAt(pos.x, pos.y);
   }
 
+  /* Idea del composer: aparece justo encima del composer y halada hacia el
+     centro del lienzo; se elige la posición menos concurrida de un puñado de
+     candidatas muy próximas. */
+  function createIdea(text: string, originScreen: { x: number; y: number }) {
+    const origin = screenToFlowPosition(originScreen);
+    const center = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    // Punto de partida: encima del composer, tirando 30% hacia el centro.
+    const base = {
+      x: origin.x + (center.x - origin.x) * 0.3,
+      y: origin.y - 220,
+    };
+    const busy = nodes
+      .filter((n) => n.type === 'card')
+      .map((n) => ({ x: n.position.x, y: n.position.y }));
+    let best = { x: base.x, y: base.y, score: -1 };
+    for (let i = 0; i < 12; i++) {
+      const x = base.x + (Math.random() - 0.5) * 340;
+      const y = base.y + (Math.random() - 0.5) * 150;
+      const score = busy.length
+        ? Math.min(...busy.map((c) => Math.hypot(c.x - x, c.y - y)))
+        : 999;
+      if (score > best.score) best = { x, y, score };
+    }
+    const card = addIdea(best.x, best.y, text);
+    if (!card) return;
+    const p = liveProject();
+    if (!p) return;
+    const node = toCardNode(card, p.groups, p.codex, isDimmed(card));
+    node.data = { ...node.data, fresh: true, dx: origin.x - best.x, dy: origin.y - best.y };
+    setNodes((nds) => [...nds, node]);
+    /* La animación sg-deal transforma el nodo mientras xyflow mide los
+       handles: re-medimos al terminar para que las líneas no queden
+       desplazadas (antes solo se corregían al recargar). */
+    window.setTimeout(() => updateNodeInternals(card.id), 950);
+    window.setTimeout(() => {
+      setNodes((nds) => nds.map((n) => (n.id === card.id ? { ...n, data: { ...n.data, fresh: false } } : n)));
+    }, 1500);
+  }
+
   function addGroupCenter() {
     const pos = screenToFlowPosition({ x: window.innerWidth / 2 - 160, y: window.innerHeight / 2 - 110 });
     const g = addGroup(pos.x, pos.y);
@@ -2036,9 +2097,24 @@ function Board({ projectId }: { projectId: string }) {
         <button className="btn btn-icon" title="Rehacer (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo}>
           <Redo2 size={18} />
         </button>
-        <button className="btn btn-icon" title="Cambiar tema" onClick={toggleTheme}>
-          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
+        <div className="seg" role="group" aria-label="Tema">
+          <span className="seg-thumb" style={{ transform: `translateX(${theme === 'dark' ? 100 : 0}%)` }} />
+          <button className={theme === 'light' ? 'on' : ''} onClick={() => theme === 'dark' && toggleTheme()}>
+            Claro
+          </button>
+          <button className={theme === 'dark' ? 'on' : ''} onClick={() => theme === 'light' && toggleTheme()}>
+            Oscuro
+          </button>
+        </div>
+        <div className="seg" role="group" aria-label="Estilo de superficie" title="Estilo de superficie">
+          <span className="seg-thumb" style={{ transform: `translateX(${glass === 'liquid' ? 100 : 0}%)` }} />
+          <button className={glass === 'normal' ? 'on' : ''} onClick={() => setGlass('normal')}>
+            Normal
+          </button>
+          <button className={glass === 'liquid' ? 'on' : ''} onClick={() => setGlass('liquid')}>
+            Liquid glass
+          </button>
+        </div>
         <button className="btn btn-icon" title="Papelera" onClick={() => setTrashOpen(true)}>
           <Trash size={18} />
           {trashedCount > 0 && <span className="badge">{trashedCount}</span>}
@@ -2048,6 +2124,26 @@ function Board({ projectId }: { projectId: string }) {
         </button>
       </div>
 
+      <svg className="sg-defs" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="sg-edge-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#8a76ff" />
+            <stop offset="100%" stopColor="#25bfb2" />
+          </linearGradient>
+          <marker
+            id="sg-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#25bfb2" />
+          </marker>
+        </defs>
+      </svg>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -2056,6 +2152,8 @@ function Board({ projectId }: { projectId: string }) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
+        connectionMode={ConnectionMode.Loose}
+        connectionRadius={32}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDragStop={onNodeDragStop}
@@ -2093,7 +2191,6 @@ function Board({ projectId }: { projectId: string }) {
         fitView
         colorMode={theme}
       >
-        <Background gap={24} size={1.5} />
         <Controls showInteractive={false} />
         <MiniMap
           pannable
@@ -2104,6 +2201,8 @@ function Board({ projectId }: { projectId: string }) {
           }}
         />
       </ReactFlow>
+
+      <IdeaComposer onCreate={createIdea} />
 
       {ctx && (
         <div className="ctx-menu" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
@@ -2364,11 +2463,27 @@ function Shell() {
 
 export default function App() {
   const theme = useStore((s) => s.theme);
+  const style = useStore((s) => s.style);
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+    document.documentElement.setAttribute('data-style', style);
+  }, [theme, style]);
   return (
     <ReactFlowProvider>
+      <div className="backdrop" aria-hidden="true">
+        <svg className="liquid-filter" focusable="false">
+          <filter id="liquid" x="-10%" y="-10%" width="120%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="4" result="n" />
+            <feGaussianBlur in="n" stdDeviation="2" result="nb" />
+            <feDisplacementMap in="SourceGraphic" in2="nb" scale="38" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </svg>
+        <div className="bg-gradient" />
+        <div className="blob blob-a" />
+        <div className="blob blob-b" />
+        <div className="blob blob-c" />
+        <div className="canvas-grid" />
+      </div>
       <Shell />
     </ReactFlowProvider>
   );
