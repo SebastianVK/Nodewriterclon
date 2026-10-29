@@ -15,7 +15,7 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const timerRef = useRef<number | null>(null);
 
-  /* Cierre diferido: al salir del ratón sin texto escrito, espera 2.5s y
+  /* Cierre diferido: al salir del ratón sin texto escrito, espera 1s y
      cierra; si el cursor vuelve (o hay texto) se cancela. */
   const cancelClose = () => {
     if (timerRef.current !== null) {
@@ -28,11 +28,12 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       if (!wrapRef.current?.matches(':hover') && !text.trim()) setActive(false);
-    }, 2500);
+    }, 1000);
   };
 
-  /* Clic fuera cierra (tarjeta o lienzo vacío: cualquier mousedown fuera).
-     El texto escrito se conserva. */
+  /* Clic fuera cierra (tarjeta o lienzo vacio: cualquier mousedown fuera).
+     Fase capture: xyflow corta la propagacion del mousedown en las tarjetas
+     (d3-drag), asi que en bubble nunca llegaria. El texto se conserva. */
   useEffect(() => {
     if (!active) return;
     const close = (e: MouseEvent) => {
@@ -41,8 +42,8 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
         setActive(false);
       }
     };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
+    window.addEventListener('mousedown', close, true);
+    return () => window.removeEventListener('mousedown', close, true);
   }, [active]);
 
   /* Limpieza del temporizador al desmontar. */
