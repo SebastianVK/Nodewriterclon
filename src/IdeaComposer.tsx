@@ -13,16 +13,40 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
   const [text, setText] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const timerRef = useRef<number | null>(null);
 
-  /* Clic fuera cierra (guardar el texto escrito mientras se escribe). */
+  /* Cierre diferido: al salir del ratón sin texto escrito, espera 2.5s y
+     cierra; si el cursor vuelve (o hay texto) se cancela. */
+  const cancelClose = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      if (!wrapRef.current?.matches(':hover') && !text.trim()) setActive(false);
+    }, 2500);
+  };
+
+  /* Clic fuera cierra (tarjeta o lienzo vacío: cualquier mousedown fuera).
+     El texto escrito se conserva. */
   useEffect(() => {
     if (!active) return;
     const close = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setActive(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        cancelClose();
+        setActive(false);
+      }
     };
     window.addEventListener('mousedown', close);
     return () => window.removeEventListener('mousedown', close);
   }, [active]);
+
+  /* Limpieza del temporizador al desmontar. */
+  useEffect(() => cancelClose, []);
 
   const submit = () => {
     const t = text.trim();
@@ -30,6 +54,7 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
     const r = wrapRef.current?.getBoundingClientRect();
     onCreate(t, r ? { x: r.left + r.width / 2, y: r.top } : { x: window.innerWidth / 2, y: window.innerHeight - 90 });
     setText('');
+    cancelClose();
     setActive(false);
   };
 
@@ -37,7 +62,11 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
     <div
       ref={wrapRef}
       className={`composer${active ? ' active' : ''}`}
-      onMouseEnter={() => setActive(true)}
+      onMouseEnter={() => {
+        cancelClose();
+        setActive(true);
+      }}
+      onMouseLeave={scheduleClose}
     >
       <div className="prism-border" aria-hidden="true">
         <i />
@@ -56,13 +85,20 @@ export function IdeaComposer({ onCreate }: IdeaComposerProps) {
               value={text}
               rows={2}
               placeholder="¿Y si…?"
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                /* Si se vacía el texto con el cursor fuera, empezar a cerrar. */
+                if (!e.target.value.trim()) scheduleClose();
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   submit();
                 }
-                if (e.key === 'Escape') setActive(false);
+                if (e.key === 'Escape') {
+                  cancelClose();
+                  setActive(false);
+                }
               }}
             />
             <div className="composer-footer">
