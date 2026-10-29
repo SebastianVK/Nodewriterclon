@@ -676,10 +676,16 @@ label.field-label {
   }
 }
 
-.card-bar {
-  width: 6px;
-  background: var(--card-color);
-  flex-shrink: 0;
+/* Sombra interna inferior de unos pocos px (sustituye a la barra de color). */
+.card-node::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(10, 8, 30, 0.16), transparent);
 }
 
 .card-body {
@@ -2240,7 +2246,6 @@ kbd {
 }
 
 /* El contenido pinta por encima del rim light. */
-[data-style='liquid'] .card-node > .card-bar,
 [data-style='liquid'] .card-node > .card-body,
 [data-style='liquid'] .modal > *,
 [data-style='liquid'] .palette > *,

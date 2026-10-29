@@ -64,7 +64,6 @@ function CardNodeComponent({ data, selected }: NodeProps) {
       }}
     >
       <div className="card-shine" />
-      <div className="card-bar" />
       <div className="card-body">
         {badgeLabel && (
           <span className={`card-type type-${badgeType.type}`}>{badgeLabel}</span>
