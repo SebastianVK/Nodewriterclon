@@ -8,6 +8,13 @@
   background: transparent;
 }
 
+/* El contenedor de xyflow pinta #141414 en oscuro y tapaba el backdrop
+   (gradiente + blobs + retícula). El canvas es transparente por diseño:
+   el fondo animado vive en el backdrop. */
+.board .react-flow {
+  background-color: transparent;
+}
+
 /* ============ fondo animado (backdrop UI 2.0) ============ */
 
 .backdrop {
@@ -537,6 +544,10 @@ label.field-label {
 
 .card-node {
   --card-color: #2563eb;
+  /* Sombra interna inferior con el color de la tarjeta (inset: el efecto
+     recede hacia dentro, siguiendo la geometría redondeada). Sustituye a
+     la barra de color lateral. */
+  --card-inset: inset 0 -18px 24px -14px color-mix(in srgb, var(--card-color) 65%, transparent);
   --mx: 50%;
   --my: 50%;
   position: relative;
@@ -546,7 +557,7 @@ label.field-label {
   background: var(--g-fill), var(--card);
   backdrop-filter: blur(16px) saturate(160%);
   border-radius: 14px;
-  box-shadow: var(--g-hi), 0 16px 40px rgba(10, 8, 30, 0.22);
+  box-shadow: var(--g-hi), 0 16px 40px rgba(10, 8, 30, 0.22), var(--card-inset);
   border: 1px solid var(--g-edge);
   overflow: hidden;
   cursor: grab;
@@ -554,12 +565,13 @@ label.field-label {
 }
 
 [data-theme='dark'] .card-node {
-  box-shadow: var(--g-hi), 0 16px 40px rgba(10, 8, 30, 0.35);
+  box-shadow: var(--g-hi), 0 16px 40px rgba(10, 8, 30, 0.35), var(--card-inset);
 }
 
 .card-node.selected {
   border-color: var(--accent);
-  box-shadow: var(--g-hi), 0 0 0 3px var(--accent-pale), 0 16px 40px rgba(10, 8, 30, 0.28);
+  box-shadow: var(--g-hi), 0 0 0 3px var(--accent-pale), 0 16px 40px rgba(10, 8, 30, 0.28),
+    var(--card-inset);
 }
 
 .card-node.dimmed {
@@ -676,17 +688,8 @@ label.field-label {
   }
 }
 
-/* Sombra interna inferior de unos pocos px (sustituye a la barra de color). */
-.card-node::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 6px;
-  pointer-events: none;
-  background: linear-gradient(to top, rgba(10, 8, 30, 0.16), transparent);
-}
+/* La sombra interna de color la pinta --card-inset (box-shadow inset) en
+   cada variante de .card-node: efecto hacia adentro, no una capa encima. */
 
 .card-body {
   padding: 0.75rem 0.9rem;
@@ -2215,7 +2218,7 @@ kbd {
 }
 
 [data-style='liquid'][data-theme='light'] .card-node {
-  box-shadow: var(--g-hi), 0 14px 36px rgba(70, 50, 130, 0.18);
+  box-shadow: var(--g-hi), 0 14px 36px rgba(70, 50, 130, 0.18), var(--card-inset);
 }
 
 [data-style='liquid'] .card-shine {
