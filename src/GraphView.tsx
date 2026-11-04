@@ -51,7 +51,15 @@ export default function GraphView({
   const [notice, setNotice] = useState('');
   const hoverRef = useRef(-1);
   const forcesRef = useRef(forces);
-  const colorsRef = useRef({ ink: '#ccc', faint: '#888', edge: '#555', accent: '#4f8cff' });
+  const colorsRef = useRef({
+    ink: '#ccc',
+    faint: '#888',
+    edge: '#555',
+    accent: '#4f8cff',
+    halo: 'rgba(15, 16, 24, 0.9)',
+    nodeStroke: 'rgba(255, 255, 255, 0.4)',
+    nodeHover: '#b3a6ff',
+  });
   const cbRef = useRef({ onJumpCard, onOpenCodex, onConnectCards });
   cbRef.current = { onJumpCard, onOpenCodex, onConnectCards };
   forcesRef.current = forces;
@@ -106,11 +114,17 @@ export default function GraphView({
   // Colores de texto según tema.
   useEffect(() => {
     const cs = getComputedStyle(document.documentElement);
+    const dark = theme === 'dark';
+    const accent = cs.getPropertyValue('--accent').trim() || '#4f8cff';
     colorsRef.current = {
       ink: cs.getPropertyValue('--ink').trim() || '#ccc',
       faint: cs.getPropertyValue('--ink-faint').trim() || '#888',
-      edge: theme === 'dark' ? '#4a4a52' : '#b1b1b7',
-      accent: cs.getPropertyValue('--accent').trim() || '#4f8cff',
+      // Aristas y contornos necesitan más contraste sobre el velo difuminado.
+      edge: dark ? '#87819f' : '#a9a2bd',
+      accent,
+      halo: dark ? 'rgba(15, 16, 24, 0.92)' : 'rgba(241, 236, 255, 0.94)',
+      nodeStroke: dark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(29, 24, 48, 0.4)',
+      nodeHover: accent,
     };
   }, [theme]);
 
@@ -199,7 +213,7 @@ export default function GraphView({
           const sy = a.y + uy * (a.r + 1);
           const tx = b.x - ux * (b.r + 3);
           const ty = b.y - uy * (b.r + 3);
-          ctx.globalAlpha = dim ? 0.08 : 0.85;
+          ctx.globalAlpha = dim ? 0.08 : 0.9;
           ctx.strokeStyle = col.edge;
           ctx.beginPath();
           ctx.moveTo(sx, sy);
@@ -216,7 +230,7 @@ export default function GraphView({
           ctx.closePath();
           ctx.fill();
         } else {
-          ctx.globalAlpha = dim ? 0.06 : 0.4;
+          ctx.globalAlpha = dim ? 0.06 : 0.55;
           ctx.strokeStyle = col.faint;
           ctx.setLineDash([4 / v.k + 2, 4 / v.k + 2]);
           ctx.beginPath();
@@ -228,20 +242,19 @@ export default function GraphView({
       }
       ctx.globalAlpha = 1;
 
-      const labelAlpha = Math.max(0, Math.min(1, (v.k - 0.35) * 2.2));
-      ctx.textAlign = 'center';
+      // Nodos primero; las etiquetas se dibujan después para que ningún nodo las tape.
       for (let i = 0; i < nodes.length; i++) {
         if (!isVis(i)) continue;
         const n = nodes[i];
         const dim = hovSet && !hovSet.has(i);
         ctx.globalAlpha = dim ? 0.12 : 1;
+        ctx.lineWidth = i === hov ? 2.5 : 1.4;
+        ctx.strokeStyle = i === hov ? col.nodeHover : col.nodeStroke;
         if (n.kind === 'card') {
           ctx.beginPath();
           ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
           ctx.fillStyle = n.color;
           ctx.fill();
-          ctx.lineWidth = i === hov ? 2.5 : 1.2;
-          ctx.strokeStyle = i === hov ? '#fff' : 'rgba(0,0,0,0.55)';
           ctx.stroke();
         } else {
           ctx.beginPath();
@@ -252,15 +265,41 @@ export default function GraphView({
           ctx.closePath();
           ctx.fillStyle = n.color;
           ctx.fill();
-          ctx.lineWidth = i === hov ? 2.5 : 1.2;
-          ctx.strokeStyle = i === hov ? '#fff' : 'rgba(0,0,0,0.55)';
           ctx.stroke();
         }
-        if (labelAlpha > 0.05) {
-          ctx.globalAlpha = (dim ? 0.12 : 1) * Math.min(1, labelAlpha + 0.25);
-          ctx.font = `${i === hov ? '600 ' : ''}11px system-ui, sans-serif`;
+      }
+
+      const labelAlpha = Math.max(0, Math.min(1, (v.k - 0.35) * 2.2));
+      if (labelAlpha > 0.05) {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let i = 0; i < nodes.length; i++) {
+          if (!isVis(i)) continue;
+          const n = nodes[i];
+          const dim = hovSet && !hovSet.has(i);
+          const alpha = (dim ? 0.12 : 1) * Math.min(1, labelAlpha + 0.25);
+          if (alpha < 0.04) continue;
+          ctx.globalAlpha = alpha;
+          // Etiqueta de tamaño constante en pantalla para que no se pierda con el zoom.
+          const fontPx = 11 / v.k;
+          ctx.font = `${i === hov ? '700 ' : '600 '}${fontPx}px system-ui, sans-serif`;
+          const labelY = n.y - n.r - 13 / v.k;
+          if (i === hov) {
+            const textW = ctx.measureText(n.label).width;
+            const padX = 6 / v.k;
+            const pillH = 19 / v.k;
+            ctx.fillStyle = col.halo;
+            ctx.beginPath();
+            ctx.roundRect(n.x - textW / 2 - padX, labelY - pillH / 2, textW + padX * 2, pillH, 6 / v.k);
+            ctx.fill();
+          }
+          // Halo del color del velo: separa el texto de nodos y aristas en todos los temas.
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = 3.5 / v.k;
+          ctx.strokeStyle = col.halo;
+          ctx.strokeText(n.label, n.x, labelY);
           ctx.fillStyle = col.ink;
-          ctx.fillText(n.label, n.x, n.y - n.r - 5);
+          ctx.fillText(n.label, n.x, labelY);
         }
       }
       const cc = connRef.current;

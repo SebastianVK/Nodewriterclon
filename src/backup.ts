@@ -39,6 +39,11 @@ function strOrNull(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
 }
 
+const HANDLE_IDS = ['t', 'r', 'b', 'l'];
+function handleOrNull(v: unknown): string | null {
+  return typeof v === 'string' && HANDLE_IDS.includes(v) ? v : null;
+}
+
 function num(v: unknown, fb = 0): number {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fb;
@@ -90,7 +95,13 @@ function normalizeStorygraph(o: Record<string, unknown>): Project {
   });
   const connections: Connection[] = (Array.isArray(o.connections) ? o.connections : []).map((r) => {
     const c = (r ?? {}) as Record<string, unknown>;
-    return { id: str(c.id, uid()), source: String(c.source ?? ''), target: String(c.target ?? '') };
+    return {
+      id: str(c.id, uid()),
+      source: String(c.source ?? ''),
+      target: String(c.target ?? ''),
+      sourceHandle: handleOrNull(c.sourceHandle),
+      targetHandle: handleOrNull(c.targetHandle),
+    };
   });
   const groups: Group[] = (Array.isArray(o.groups) ? o.groups : []).map((r) => {
     const g = (r ?? {}) as Record<string, unknown>;
@@ -272,6 +283,8 @@ export function remapProject(p: Project): Project {
         id: uid(),
         source: cardMap.get(cn.source)!,
         target: cardMap.get(cn.target)!,
+        sourceHandle: cn.sourceHandle ?? null,
+        targetHandle: cn.targetHandle ?? null,
       })),
     groups: p.groups.map((g) => ({ ...g, id: groupMap.get(g.id)! })),
     codex: p.codex.map((e) => ({ ...e, id: codexMap.get(e.id)!, aliases: [...e.aliases] })),

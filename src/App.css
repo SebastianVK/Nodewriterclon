@@ -360,6 +360,22 @@ label.field-label {
   box-shadow: inset 0 1px 0 #fff, 0 2px 8px rgba(70, 50, 130, 0.2);
 }
 
+/* etiqueta del segmentado de hilos */
+.seg-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.seg-label {
+  font: 500 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  user-select: none;
+}
+
 /* ============ composer de ideas (UI 2.0) ============ */
 
 .composer {
@@ -1106,6 +1122,67 @@ label.field-label {
   gap: 0.6rem;
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--rule);
+}
+
+/* ============ confirmación de borrado de conexiones ============ */
+
+.modal-confirm {
+  max-width: 430px;
+}
+
+.conn-delete-list {
+  list-style: none;
+  margin: 0.9rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.conn-delete-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--g-fill), var(--paper-card);
+  font-size: 0.86rem;
+}
+
+.conn-delete-list .conn-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-delete-list .conn-arrow {
+  flex: none;
+  color: var(--ink-faint);
+}
+
+.conn-delete-list .conn-more {
+  justify-content: center;
+  border-style: dashed;
+  color: var(--ink-faint);
+}
+
+.btn-danger-solid {
+  background: var(--danger);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+[data-theme='dark'] .btn-danger-solid {
+  color: #2a0b0b;
+}
+
+.btn-danger-solid:hover {
+  background: color-mix(in srgb, var(--danger) 88%, #000);
 }
 
 .swatches {
@@ -2049,8 +2126,17 @@ kbd {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: transparent;
+  /* Velo theme-aware sobre el tablero: fallback opaco para navegadores sin color-mix. */
+  background: rgba(241, 236, 255, 0.82);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
   overflow: hidden;
+}
+
+[data-theme='dark'] .graph-overlay {
+  background: rgba(15, 16, 24, 0.82);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
 }
 
 .graph-canvas-wrap {

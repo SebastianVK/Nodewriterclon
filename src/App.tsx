@@ -18,6 +18,8 @@ import '@xyflow/react/dist/style.css';
 import './App.css';
 import CardNode from './CardNode';
 import GroupNode from './GroupNode';
+import ThreadEdge, { PrototypeConnectionLine } from './ThreadEdge';
+import ConfirmDeleteConnectionsModal from './ConfirmDeleteConnectionsModal';
 import { IdeaComposer } from './IdeaComposer';
 import GraphView from './GraphView';
 import { currentProject, runHistoryBatch, useStore } from './store';
@@ -88,6 +90,7 @@ import {
 import { collectImgIds, getImages, isImageFile, putImage, resolveImgRefs } from './images';
 
 const nodeTypes = { card: CardNode, group: GroupNode };
+const edgeTypes = { thread: ThreadEdge };
 const GROUP_PREFIX = 'group-';
 
 /* ---------------- helpers ---------------- */
@@ -147,7 +150,7 @@ function toEdge(source: string, target: string, id: string, sourceHandle?: strin
     target,
     sourceHandle: sourceHandle ?? 'r',
     targetHandle: targetHandle ?? 'l',
-    type: 'default',
+    type: 'thread',
     animated: true,
   };
 }
@@ -351,6 +354,7 @@ function CardEditor({
   onChanged,
   onDuplicated,
   onFlowChanged,
+  onRequestRemoveFromFlow,
 }: {
   cardId: string;
   onClose: () => void;
@@ -358,6 +362,7 @@ function CardEditor({
   onChanged: () => void;
   onDuplicated: (copy: Card) => void;
   onFlowChanged: () => void;
+  onRequestRemoveFromFlow: (cardId: string) => void;
 }) {
   const card = useStore((s) => {
     const p = currentProject(s);
@@ -367,7 +372,6 @@ function CardEditor({
   const updateCard = useStore((s) => s.updateCard);
   const duplicateCard = useStore((s) => s.duplicateCard);
   const trashCard = useStore((s) => s.trashCard);
-  const removeFromFlow = useStore((s) => s.removeFromFlow);
   const setCardGroup = useStore((s) => s.setCardGroup);
   const saveRevision = useStore((s) => s.saveRevision);
 
@@ -751,7 +755,7 @@ function CardEditor({
                 <button
                   className="btn btn-icon"
                   title="Quitar del flujo"
-                  onClick={() => { save(); removeFromFlow(card.id); onChanged(); onFlowChanged(); }}
+                  onClick={() => { save(); onRequestRemoveFromFlow(card.id); }}
                 >
                   <Unlink size={16} />
                 </button>
@@ -1493,6 +1497,8 @@ type CtxMenu =
   | { x: number; y: number; edgeId: string }
   | null;
 
+type PendingEdgeDelete = { edgeIds: string[]; cardId?: string } | null;
+
 function Board({ projectId }: { projectId: string }) {
   const project = useStore((s) => (s.currentId === projectId ? s.projects.find((p) => p.id === projectId) ?? null : null));
   const renameProject = useStore((s) => s.renameProject);
@@ -1503,7 +1509,6 @@ function Board({ projectId }: { projectId: string }) {
   const duplicateCard = useStore((s) => s.duplicateCard);
   const trashCard = useStore((s) => s.trashCard);
   const restoreCard = useStore((s) => s.restoreCard);
-  const removeFromFlow = useStore((s) => s.removeFromFlow);
   const setCardGroup = useStore((s) => s.setCardGroup);
   const addConnection = useStore((s) => s.addConnection);
   const insertCardInto = useStore((s) => s.insertCardInto);
@@ -1516,6 +1521,8 @@ function Board({ projectId }: { projectId: string }) {
   const toggleTheme = useStore((s) => s.toggleTheme);
   const glass = useStore((s) => s.style);
   const setGlass = useStore((s) => s.setStyle);
+  const linkStyle = useStore((s) => s.linkStyle);
+  const setLinkStyle = useStore((s) => s.setLinkStyle);
   const canUndo = useStore((s) => s.past.length > 0);
   const canRedo = useStore((s) => s.future.length > 0);
   const undo = useStore((s) => s.undo);
@@ -1545,6 +1552,7 @@ function Board({ projectId }: { projectId: string }) {
   const [graphOpen, setGraphOpen] = useState(false);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [ctx, setCtx] = useState<CtxMenu>(null);
+  const [pendingEdgeDelete, setPendingEdgeDelete] = useState<PendingEdgeDelete>(null);
   const [loopWarn, setLoopWarn] = useState(false);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
 
@@ -1556,6 +1564,29 @@ function Board({ projectId }: { projectId: string }) {
 
   const cards = useMemo(() => project?.cards.filter((c) => !c.deletedAt) ?? [], [project]);
   const trashedCount = (project?.cards ?? []).filter((c) => c.deletedAt).length;
+
+  /* Datos del modal de borrado de conexiones: nombres legibles de origen y destino. */
+  const pendingConnections = useMemo(() => {
+    if (!pendingEdgeDelete || !project) return [];
+    const conns = new Map(project.connections.map((cn) => [cn.id, cn]));
+    const byCard = new Map(project.cards.map((c) => [c.id, c]));
+    return pendingEdgeDelete.edgeIds.flatMap((id) => {
+      const cn = conns.get(id);
+      if (!cn) return [];
+      const source = byCard.get(cn.source);
+      const target = byCard.get(cn.target);
+      return [{
+        source: source ? cardLabel(source) : 'Tarjeta eliminada',
+        target: target ? cardLabel(target) : 'Tarjeta eliminada',
+      }];
+    });
+  }, [pendingEdgeDelete, project]);
+
+  const pendingCardName = useMemo(() => {
+    if (!pendingEdgeDelete?.cardId || !project) return undefined;
+    const card = project.cards.find((c) => c.id === pendingEdgeDelete.cardId);
+    return card ? cardLabel(card) : undefined;
+  }, [pendingEdgeDelete, project]);
 
   const isDimmed = useCallback(
     (card: Card) => {
@@ -1620,6 +1651,22 @@ function Board({ projectId }: { projectId: string }) {
         selected: sel.has(cn.id),
       }));
     });
+  }
+
+  const requestDeleteEdges = useCallback((edgeIds: string[], cardId?: string) => {
+    const unique = [...new Set(edgeIds)];
+    if (!unique.length) return;
+    setPendingEdgeDelete({ edgeIds: unique, cardId });
+  }, []);
+
+  function confirmPendingEdgeDelete() {
+    if (!pendingEdgeDelete) return;
+    const ids = pendingEdgeDelete.edgeIds;
+    runHistoryBatch(() => {
+      for (const id of ids) deleteConnection(id);
+    });
+    setPendingEdgeDelete(null);
+    syncEdges();
   }
 
   function refreshCardNode(id: string) {
@@ -1737,11 +1784,22 @@ function Board({ projectId }: { projectId: string }) {
       const created = addConnection(source, target, params.sourceHandle, params.targetHandle);
       if (created) {
         setEdges((eds) =>
-          addEdge({ ...params, id: created.id, sourceHandle: params.sourceHandle, targetHandle: params.targetHandle, animated: true }, eds),
+          addEdge({ ...params, id: created.id, type: 'thread', sourceHandle: params.sourceHandle, targetHandle: params.targetHandle, animated: true }, eds),
         );
       }
     },
     [addConnection, setEdges],
+  );
+
+  const onBeforeDelete = useCallback(
+    async ({ nodes: deletedNodes, edges: deletedEdges }: { nodes: Node[]; edges: Edge[] }) => {
+      // Borrado indirecto al eliminar tarjetas/grupos: no pregunta por las conexiones.
+      if (deletedNodes.length > 0) return true;
+      if (deletedEdges.length === 0) return true;
+      requestDeleteEdges(deletedEdges.map((e) => e.id));
+      return false;
+    },
+    [requestDeleteEdges],
   );
 
   const onNodesDelete = useCallback(
@@ -2115,6 +2173,18 @@ function Board({ projectId }: { projectId: string }) {
             Liquid glass
           </button>
         </div>
+        <div className="seg-wrap">
+          <span className="seg-label">Hilos</span>
+          <div className="seg" role="group" aria-label="Estilo de hilos" title="Estilo de hilos">
+            <span className="seg-thumb" style={{ transform: `translateX(${linkStyle === 'prototipo' ? 100 : 0}%)` }} />
+            <button className={linkStyle === 'anclado' ? 'on' : ''} onClick={() => setLinkStyle('anclado')}>
+              Anclado
+            </button>
+            <button className={linkStyle === 'prototipo' ? 'on' : ''} onClick={() => setLinkStyle('prototipo')}>
+              Prototipo
+            </button>
+          </div>
+        </div>
         <button className="btn btn-icon" title="Papelera" onClick={() => setTrashOpen(true)}>
           <Trash size={18} />
           {trashedCount > 0 && <span className="badge">{trashedCount}</span>}
@@ -2148,6 +2218,8 @@ function Board({ projectId }: { projectId: string }) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        connectionLineComponent={linkStyle === 'prototipo' ? PrototypeConnectionLine : undefined}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -2156,6 +2228,7 @@ function Board({ projectId }: { projectId: string }) {
         connectionRadius={32}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
+        onBeforeDelete={onBeforeDelete}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={(_, node) => {
           if (node.type === 'card') setEditingId(node.id);
@@ -2170,10 +2243,7 @@ function Board({ projectId }: { projectId: string }) {
         }}
         onEdgeDoubleClick={(e, edge) => {
           e.preventDefault();
-          if (window.confirm('¿Eliminar esta conexión?')) {
-            deleteConnection(edge.id);
-            syncEdges();
-          }
+          requestDeleteEdges([edge.id]);
         }}
         onPaneClick={() => setCtx(null)}
         onMoveStart={() => setCtx(null)}
@@ -2181,7 +2251,7 @@ function Board({ projectId }: { projectId: string }) {
           setCtx(null);
           altDragRef.current = e.altKey && node.type === 'card';
         }}
-        defaultEdgeOptions={{ type: 'default', animated: true }}
+        defaultEdgeOptions={{ type: 'thread', animated: true }}
         deleteKeyCode={['Backspace', 'Delete']}
         selectionKeyCode="Shift"
         multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
@@ -2277,7 +2347,13 @@ function Board({ projectId }: { projectId: string }) {
               {degreeOf(ctxCard.id, project.connections) > 0 && (
                 <button
                   className="ctx-item"
-                  onClick={() => { removeFromFlow(ctxCard.id); syncEdges(); setCtx(null); }}
+                  onClick={() => {
+                    const ids = project.connections
+                      .filter((cn) => cn.source === ctxCard.id || cn.target === ctxCard.id)
+                      .map((cn) => cn.id);
+                    setCtx(null);
+                    requestDeleteEdges(ids, ctxCard.id);
+                  }}
                 >
                   Quitar del flujo
                 </button>
@@ -2379,8 +2455,7 @@ function Board({ projectId }: { projectId: string }) {
             <button
               className="ctx-item danger"
               onClick={() => {
-                deleteConnection(ctx.edgeId);
-                syncEdges();
+                requestDeleteEdges([ctx.edgeId]);
                 setCtx(null);
               }}
             >
@@ -2402,6 +2477,22 @@ function Board({ projectId }: { projectId: string }) {
             if (p) setNodes((nds) => [...nds, toCardNode(copy, p.groups, p.codex, isDimmed(copy))]);
           }}
           onFlowChanged={() => syncEdges()}
+          onRequestRemoveFromFlow={(id) => {
+            const p = liveProject();
+            if (!p) return;
+            const ids = p.connections
+              .filter((cn) => cn.source === id || cn.target === id)
+              .map((cn) => cn.id);
+            requestDeleteEdges(ids, id);
+          }}
+        />
+      )}
+      {pendingEdgeDelete && pendingConnections.length > 0 && (
+        <ConfirmDeleteConnectionsModal
+          connections={pendingConnections}
+          cardName={pendingCardName}
+          onCancel={() => setPendingEdgeDelete(null)}
+          onConfirm={confirmPendingEdgeDelete}
         />
       )}
       {codexOpen && (

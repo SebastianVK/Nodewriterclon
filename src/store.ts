@@ -48,11 +48,15 @@ export function runHistoryBatch(fn: () => void): void {
   }
 }
 
+export type LinkStyle = 'anclado' | 'prototipo';
+
 interface StoryState {
   projects: Project[];
   currentId: string | null;
   theme: 'dark' | 'light';
   style: 'normal' | 'liquid';
+  /** Dibujo de las aristas del tablero: anclado a handles o estilo prototipo. */
+  linkStyle: LinkStyle;
   past: HistoryEntry[];
   future: HistoryEntry[];
 
@@ -98,6 +102,7 @@ interface StoryState {
 
   toggleTheme: () => void;
   setStyle: (style: 'normal' | 'liquid') => void;
+  setLinkStyle: (linkStyle: LinkStyle) => void;
 
   undo: () => void;
   redo: () => void;
@@ -260,6 +265,7 @@ export const useStore = create<StoryState>()(
       currentId: null,
       theme: 'dark',
       style: 'normal',
+      linkStyle: 'anclado',
       past: [],
       future: [],
 
@@ -591,6 +597,8 @@ export const useStore = create<StoryState>()(
 
       setStyle: (style) => set({ style }),
 
+      setLinkStyle: (linkStyle) => set({ linkStyle }),
+
       undo: () => {
         const s = get();
         const prev = s.past[s.past.length - 1];
@@ -619,7 +627,13 @@ export const useStore = create<StoryState>()(
     {
       name: 'storygraph-v2',
       version: 2,
-      partialize: (s) => ({ projects: s.projects, currentId: s.currentId, theme: s.theme, style: s.style }),
+      partialize: (s) => ({
+        projects: s.projects,
+        currentId: s.currentId,
+        theme: s.theme,
+        style: s.style,
+        linkStyle: s.linkStyle,
+      }),
       merge: (persisted, current) => {
         const p = persisted as unknown as Record<string, unknown>;
         if (p && Array.isArray(p.projects)) {
