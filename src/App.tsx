@@ -19,6 +19,7 @@ import './App.css';
 import CardNode from './CardNode';
 import GroupNode from './GroupNode';
 import ThreadEdge, { PrototypeConnectionLine } from './ThreadEdge';
+import ConfirmCardDropModal, { type CardDropAction } from './ConfirmCardDropModal';
 import ConfirmDeleteConnectionsModal from './ConfirmDeleteConnectionsModal';
 import { IdeaComposer } from './IdeaComposer';
 import GraphView from './GraphView';
@@ -32,6 +33,8 @@ import {
   TRASH_RETENTION_DAYS,
   cardLabel,
   cardTags,
+  codexLabel,
+  codexPlaceholder,
   degreeOf,
   markdownToHtml,
   orderFromStart,
@@ -603,7 +606,7 @@ function CardEditor({
                           key={m.id}
                           type="button"
                           className="mention-chip"
-                          title={`Abrir "${m.name}" en el codex`}
+                          title={`Abrir "${codexLabel(m)}" en el codex`}
                           onClick={() => onOpenCodexEntry(m.id)}
                         >
                           {MentionIcon ? (
@@ -613,7 +616,7 @@ function CardEditor({
                           ) : (
                             <span className="mention-dot" style={{ background: m.color }} />
                           )}
-                          {m.name}
+                          {codexLabel(m)}
                         </button>
                       );
                     })}
@@ -910,6 +913,8 @@ function CodexModal({
   const [name, setName] = useState('');
   const [aliases, setAliases] = useState('');
   const [notes, setNotes] = useState('');
+  const nameRef = useRef<HTMLInputElement>(null);
+  const focusNameRef = useRef(false);
 
   const entries = project?.codex ?? [];
   const cards = useMemo(() => project?.cards.filter((c) => !c.deletedAt) ?? [], [project]);
@@ -919,6 +924,10 @@ function CodexModal({
     setName(selected?.name ?? '');
     setAliases(selected?.aliases.join(', ') ?? '');
     setNotes(selected?.notes ?? '');
+    if (focusNameRef.current) {
+      focusNameRef.current = false;
+      requestAnimationFrame(() => nameRef.current?.focus());
+    }
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const visible = useMemo(
@@ -983,7 +992,7 @@ function CodexModal({
                     ) : (
                       <span className="mention-dot" style={{ background: e.color }} />
                     )}
-                    {e.name}
+                    <span className={e.name.trim() ? undefined : 'muted'}>{codexLabel(e)}</span>
                   </button>
                 );
               })}
@@ -992,7 +1001,10 @@ function CodexModal({
               className="btn btn-secondary"
               onClick={() => {
                 const e = addCodex(filter === 'all' ? 'character' : filter);
-                if (e) setSelectedId(e.id);
+                if (e) {
+                  focusNameRef.current = true;
+                  setSelectedId(e.id);
+                }
               }}
             >
               + Nueva entrada
@@ -1003,9 +1015,10 @@ function CodexModal({
               <>
                 <div className="codex-name-row">
                   <input
+                    ref={nameRef}
                     className="input"
                     value={name}
-                    placeholder="Nombre"
+                    placeholder={codexPlaceholder(selected.type)}
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => commit('name')}
                   />
@@ -1106,7 +1119,7 @@ function CodexModal({
                   className="btn btn-icon btn-danger"
                   title="Eliminar entrada"
                   onClick={() => {
-                    if (window.confirm(`¿Eliminar "${selected.name}"?`)) {
+                    if (window.confirm(`¿Eliminar "${codexLabel(selected)}"?`)) {
                       deleteCodex(selected.id);
                       setSelectedId(null);
                     }
@@ -1553,6 +1566,7 @@ function Board({ projectId }: { projectId: string }) {
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [ctx, setCtx] = useState<CtxMenu>(null);
   const [pendingEdgeDelete, setPendingEdgeDelete] = useState<PendingEdgeDelete>(null);
+  const [pendingCardDrop, setPendingCardDrop] = useState<CardDropAction | null>(null);
   const [loopWarn, setLoopWarn] = useState(false);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
 
@@ -1669,6 +1683,17 @@ function Board({ projectId }: { projectId: string }) {
     syncEdges();
   }
 
+  function confirmPendingCardDrop() {
+    if (!pendingCardDrop) return;
+    if (pendingCardDrop.kind === 'insert') {
+      insertCardInto(pendingCardDrop.connectionId, pendingCardDrop.cardId);
+    } else {
+      addConnection(pendingCardDrop.sourceId, pendingCardDrop.targetId);
+    }
+    setPendingCardDrop(null);
+    syncEdges();
+  }
+
   function refreshCardNode(id: string) {
     const p = currentProject(useStore.getState());
     if (!p) return;
@@ -1716,10 +1741,16 @@ function Board({ projectId }: { projectId: string }) {
         if (!s || !t) continue;
         const { dist, t: tt } = pointSegDist(me.x, me.y, s.x, s.y, t.x, t.y);
         if (dist < 50 && tt > 0.08 && tt < 0.92) {
-          if (window.confirm(`¿Insertar "${cardLabel(card)}" en esta conexión?`)) {
-            insertCardInto(cn.id, node.id);
-            syncEdges();
-          }
+          const source = p.cards.find((c) => c.id === cn.source);
+          const target = p.cards.find((c) => c.id === cn.target);
+          setPendingCardDrop({
+            kind: 'insert',
+            connectionId: cn.id,
+            cardId: node.id,
+            cardName: cardLabel(card),
+            sourceName: source ? cardLabel(source) : 'Tarjeta eliminada',
+            targetName: target ? cardLabel(target) : 'Tarjeta eliminada',
+          });
           return;
         }
       }
@@ -1731,12 +1762,13 @@ function Board({ projectId }: { projectId: string }) {
         if (Math.hypot(me.x - o.x, me.y - o.y) < 70 && degreeOf(other.id, p.connections) <= 1) {
           if (wouldCreateLoop(other.id, node.id, p.connections)) continue;
           const otherCard = p.cards.find((c) => c.id === other.id);
-          if (
-            window.confirm(`¿Conectar "${otherCard ? cardLabel(otherCard) : ''}" con "${cardLabel(card)}"?`)
-          ) {
-            addConnection(other.id, node.id);
-            syncEdges();
-          }
+          setPendingCardDrop({
+            kind: 'connect',
+            sourceId: other.id,
+            targetId: node.id,
+            cardName: cardLabel(card),
+            otherName: otherCard ? cardLabel(otherCard) : 'Tarjeta',
+          });
           return;
         }
       }
@@ -1932,7 +1964,15 @@ function Board({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const modalOpen = editingId || exportOpen || codexOpen || trashOpen || helpOpen || paletteOpen;
+      const modalOpen =
+        editingId ||
+        exportOpen ||
+        codexOpen ||
+        trashOpen ||
+        helpOpen ||
+        paletteOpen ||
+        !!pendingEdgeDelete ||
+        !!pendingCardDrop;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((v) => !v);
@@ -1976,7 +2016,19 @@ function Board({ projectId }: { projectId: string }) {
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [editingId, exportOpen, codexOpen, trashOpen, helpOpen, paletteOpen, duplicateCard, setNodes, isDimmed]);
+  }, [
+    editingId,
+    exportOpen,
+    codexOpen,
+    trashOpen,
+    helpOpen,
+    paletteOpen,
+    pendingEdgeDelete,
+    pendingCardDrop,
+    duplicateCard,
+    setNodes,
+    isDimmed,
+  ]);
 
   function liveProject(): NonNullable<ReturnType<typeof currentProject>> | null {
     return currentProject(useStore.getState());
@@ -2485,6 +2537,13 @@ function Board({ projectId }: { projectId: string }) {
               .map((cn) => cn.id);
             requestDeleteEdges(ids, id);
           }}
+        />
+      )}
+      {pendingCardDrop && (
+        <ConfirmCardDropModal
+          action={pendingCardDrop}
+          onCancel={() => setPendingCardDrop(null)}
+          onConfirm={confirmPendingCardDrop}
         />
       )}
       {pendingEdgeDelete && pendingConnections.length > 0 && (

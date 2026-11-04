@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { currentProject, useStore } from './store';
-import { cardTags } from './types';
+import { cardTags, codexLabel } from './types';
 import {
   DEFAULT_FORCES,
   buildGraph,
@@ -87,7 +87,7 @@ export default function GraphView({
     const cards = project.cards
       .filter((c) => !c.deletedAt)
       .map((c) => ({ id: `c:${c.id}`, label: c.type === 'start' ? 'Start' : c.title || 'Nueva tarjeta' }));
-    const codex = project.codex.map((e) => ({ id: `x:${e.id}`, label: `◈ ${e.name}` }));
+    const codex = project.codex.map((e) => ({ id: `x:${e.id}`, label: `◈ ${codexLabel(e)}` }));
     return [...cards, ...codex];
   }, [project]);
 

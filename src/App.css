@@ -1170,6 +1170,45 @@ label.field-label {
   color: var(--ink-faint);
 }
 
+/* ============ confirmación al soltar una tarjeta ============ */
+
+.drop-chain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--g-fill), var(--paper-card);
+  font-size: 0.86rem;
+}
+
+.drop-chain .conn-name {
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop-chain .conn-arrow {
+  flex: none;
+  color: var(--ink-faint);
+}
+
+.drop-chain-card {
+  max-width: 34%;
+  overflow: hidden;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .btn-danger-solid {
   background: var(--danger);
   color: #fff;

@@ -185,6 +185,22 @@ export function cardLabel(card: Pick<Card, 'title'>): string {
   return card.title.trim() || 'Nueva tarjeta';
 }
 
+const CODEX_PLACEHOLDER: Record<CodexType, string> = {
+  character: 'Nuevo personaje',
+  location: 'Nuevo lugar',
+  item: 'Nuevo objeto',
+  lore: 'Nuevo trasfondo',
+  other: 'Nueva entrada',
+};
+
+export function codexPlaceholder(type: CodexType): string {
+  return CODEX_PLACEHOLDER[type] ?? 'Nueva entrada';
+}
+
+export function codexLabel(entry: Pick<CodexEntry, 'name' | 'type'>): string {
+  return entry.name.trim() || 'Sin nombre';
+}
+
 export function cardTags(tags: string[] | null | undefined): string[] {
   if (!tags) return [];
   return Array.isArray(tags) ? tags : String(tags).split(',').map((t) => t.trim()).filter(Boolean);

@@ -534,7 +534,7 @@ export const useStore = create<StoryState>()(
         const entry: CodexEntry = {
           id: uid(),
           type,
-          name: 'Nueva entrada',
+          name: '',
           aliases: [],
           color: CODEX_DEFAULT_COLOR[type],
           icon: CODEX_DEFAULT_ICON[type],
