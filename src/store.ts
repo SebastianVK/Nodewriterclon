@@ -12,6 +12,7 @@ import type {
   Revision,
 } from './types';
 import { nowIso, uid, CODEX_DEFAULT_COLOR, CODEX_DEFAULT_ICON } from './types';
+import { classifyIdea, detectName, IDEA_CODEX, IDEA_STYLE } from './composer';
 
 /** Instantánea de estado para deshacer/rehacer (por referencia: barato). */
 export interface HistoryEntry {
@@ -47,10 +48,15 @@ export function runHistoryBatch(fn: () => void): void {
   }
 }
 
+export type LinkStyle = 'anclado' | 'prototipo';
+
 interface StoryState {
   projects: Project[];
   currentId: string | null;
   theme: 'dark' | 'light';
+  style: 'normal' | 'liquid';
+  /** Dibujo de las aristas del tablero: anclado a handles o estilo prototipo. */
+  linkStyle: LinkStyle;
   past: HistoryEntry[];
   future: HistoryEntry[];
 
@@ -62,6 +68,8 @@ interface StoryState {
   importProject: (p: Project, images?: BackupImage[]) => void;
 
   addCard: (x: number, y: number) => Card | null;
+  /** Idea del composer: clasifica texto y crea tarjeta (+codex si aplica) en un solo paso. */
+  addIdea: (x: number, y: number, text: string) => Card | null;
   updateCard: (id: string, patch: Partial<Card>) => void;
   duplicateCard: (id: string) => Card | null;
   trashCard: (id: string) => void;
@@ -71,7 +79,12 @@ interface StoryState {
   removeFromFlow: (id: string) => void;
   setCardGroup: (id: string, groupId: string | null, x?: number, y?: number) => void;
 
-  addConnection: (source: string, target: string) => Connection | null;
+  addConnection: (
+    source: string,
+    target: string,
+    sourceHandle?: string | null,
+    targetHandle?: string | null,
+  ) => Connection | null;
   insertCardInto: (connectionId: string, cardId: string) => void;
   deleteConnection: (id: string) => void;
 
@@ -88,6 +101,8 @@ interface StoryState {
   restoreRevision: (cardId: string, revisionId: string) => void;
 
   toggleTheme: () => void;
+  setStyle: (style: 'normal' | 'liquid') => void;
+  setLinkStyle: (linkStyle: LinkStyle) => void;
 
   undo: () => void;
   redo: () => void;
@@ -249,6 +264,8 @@ export const useStore = create<StoryState>()(
       projects: [],
       currentId: null,
       theme: 'dark',
+      style: 'normal',
+      linkStyle: 'anclado',
       past: [],
       future: [],
 
@@ -304,6 +321,52 @@ export const useStore = create<StoryState>()(
         const hasCurrent = get().currentId;
         if (!hasCurrent) return null;
         set((st) => withCurrent(st, (p) => ({ cards: [...p.cards, card] })));
+        return card;
+      },
+
+      addIdea: (x, y, text) => {
+        const trimmed = text.trim();
+        if (!trimmed || !get().currentId) return null;
+        const kind = classifyIdea(trimmed);
+        const style = IDEA_STYLE[kind];
+        const title = trimmed.length > 38 ? `${trimmed.slice(0, 38)}…` : trimmed;
+        const codexType = IDEA_CODEX[kind];
+        const name = codexType ? detectName(trimmed) : null;
+        const card: Card = {
+          id: uid(),
+          title,
+          summary: '',
+          content: trimmed,
+          color: style.color,
+          icon: style.icon,
+          tags: [style.tag],
+          x,
+          y,
+          type: 'normal',
+          groupId: null,
+          deletedAt: null,
+        };
+        /* Tarjeta + entrada de codex en la misma actualización: un solo paso de deshacer. */
+        set((st) =>
+          withCurrent(st, (p) => ({
+            cards: [...p.cards, card],
+            codex:
+              codexType && name
+                ? [
+                    ...p.codex,
+                    {
+                      id: uid(),
+                      type: codexType,
+                      name,
+                      aliases: [],
+                      color: CODEX_DEFAULT_COLOR[codexType],
+                      icon: CODEX_DEFAULT_ICON[codexType],
+                      notes: '',
+                    },
+                  ]
+                : p.codex,
+          })),
+        );
         return card;
       },
 
@@ -400,13 +463,13 @@ export const useStore = create<StoryState>()(
           }),
         ),
 
-      addConnection: (source, target) => {
+      addConnection: (source, target, sourceHandle, targetHandle) => {
         let created: Connection | null = null;
         set((s) => {
           const p = s.projects.find((pr) => pr.id === s.currentId);
           if (!p || source === target) return {};
           if (p.connections.some((cn) => cn.source === source && cn.target === target)) return {};
-          created = { id: uid(), source, target };
+          created = { id: uid(), source, target, sourceHandle, targetHandle };
           const cc = created;
           return withCurrent(s, (pr) => ({ connections: [...pr.connections, cc] }));
         });
@@ -471,7 +534,7 @@ export const useStore = create<StoryState>()(
         const entry: CodexEntry = {
           id: uid(),
           type,
-          name: 'Nueva entrada',
+          name: '',
           aliases: [],
           color: CODEX_DEFAULT_COLOR[type],
           icon: CODEX_DEFAULT_ICON[type],
@@ -532,6 +595,10 @@ export const useStore = create<StoryState>()(
 
       toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
 
+      setStyle: (style) => set({ style }),
+
+      setLinkStyle: (linkStyle) => set({ linkStyle }),
+
       undo: () => {
         const s = get();
         const prev = s.past[s.past.length - 1];
@@ -560,7 +627,13 @@ export const useStore = create<StoryState>()(
     {
       name: 'storygraph-v2',
       version: 2,
-      partialize: (s) => ({ projects: s.projects, currentId: s.currentId, theme: s.theme }),
+      partialize: (s) => ({
+        projects: s.projects,
+        currentId: s.currentId,
+        theme: s.theme,
+        style: s.style,
+        linkStyle: s.linkStyle,
+      }),
       merge: (persisted, current) => {
         const p = persisted as unknown as Record<string, unknown>;
         if (p && Array.isArray(p.projects)) {

@@ -1,5 +1,5 @@
 import type { Project } from './types';
-import { cardLabel, cardTags } from './types';
+import { cardLabel, cardTags, codexLabel } from './types';
 import { cardText, findMentions } from './mentions';
 
 export type GKind = 'card' | 'codex';
@@ -102,7 +102,7 @@ export function buildGraph(project: Project, f: GraphFilters): BuiltGraph {
       id: `x:${e.id}`,
       kind: 'codex',
       refId: e.id,
-      label: e.name,
+      label: codexLabel(e),
       color: e.color,
       r: Math.min(7 + count * 1.6, 16),
       degree: count,

@@ -19,6 +19,9 @@ export interface Connection {
   id: string;
   source: string;
   target: string;
+  /** Borde por el que se agarró/soltó (t/r/b/l). Opcional: por defecto r→l. */
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
 }
 
 export interface Group {
@@ -180,6 +183,22 @@ export function wordCount(text: string): number {
 
 export function cardLabel(card: Pick<Card, 'title'>): string {
   return card.title.trim() || 'Nueva tarjeta';
+}
+
+const CODEX_PLACEHOLDER: Record<CodexType, string> = {
+  character: 'Nuevo personaje',
+  location: 'Nuevo lugar',
+  item: 'Nuevo objeto',
+  lore: 'Nuevo trasfondo',
+  other: 'Nueva entrada',
+};
+
+export function codexPlaceholder(type: CodexType): string {
+  return CODEX_PLACEHOLDER[type] ?? 'Nueva entrada';
+}
+
+export function codexLabel(entry: Pick<CodexEntry, 'name' | 'type'>): string {
+  return entry.name.trim() || 'Sin nombre';
 }
 
 export function cardTags(tags: string[] | null | undefined): string[] {
