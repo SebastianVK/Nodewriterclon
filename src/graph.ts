@@ -1,9 +1,16 @@
 import type { Project } from './types';
-import { cardLabel, cardTags, codexLabel } from './types';
+import {
+  cardLabel,
+  cardTags,
+  codexLabel,
+  groupNodeId,
+  groupSourceId,
+  isGroupNodeId,
+} from './types';
 import { cardText, findMentions } from './mentions';
 
-export type GKind = 'card' | 'codex';
-export type EKind = 'flow' | 'mention';
+export type GKind = 'card' | 'codex' | 'group';
+export type EKind = 'flow' | 'mention' | 'member';
 
 export interface GNode {
   id: string;
@@ -28,6 +35,7 @@ export interface GEdge {
 export interface GraphFilters {
   showMentions: boolean;
   showOrphans: boolean;
+  showGroups: boolean;
   tag: string;
 }
 
@@ -41,6 +49,15 @@ function flowDegree(cardId: string, project: Project): number {
   let n = 0;
   for (const cn of project.connections) {
     if (cn.source === cardId || cn.target === cardId) n++;
+  }
+  return n;
+}
+
+function groupLinkDegree(groupId: string, project: Project): number {
+  const nodeId = groupNodeId(groupId);
+  let n = 0;
+  for (const cn of project.connections) {
+    if (cn.source === nodeId || cn.target === nodeId) n++;
   }
   return n;
 }
@@ -84,6 +101,29 @@ export function buildGraph(project: Project, f: GraphFilters): BuiltGraph {
     });
   }
 
+  if (f.showGroups) {
+    for (const g of project.groups) {
+      const members = live.filter((c) => c.groupId === g.id && keep.has(c.id));
+      if (f.tag !== 'all' && members.length === 0) continue;
+      const links = groupLinkDegree(g.id, project);
+      const p = scatter(320);
+      index.set(`g:${g.id}`, nodes.length);
+      nodes.push({
+        id: `g:${g.id}`,
+        kind: 'group',
+        refId: g.id,
+        label: g.name.trim() || 'Grupo',
+        color: g.color,
+        r: Math.min(11 + members.length * 1.4 + links * 1.6, 26),
+        degree: members.length + links,
+        x: p.x,
+        y: p.y,
+        vx: 0,
+        vy: 0,
+      });
+    }
+  }
+
   const codexUsed = new Map<string, number>();
   if (f.showMentions) {
     for (const c of live) {
@@ -114,11 +154,25 @@ export function buildGraph(project: Project, f: GraphFilters): BuiltGraph {
   }
 
   let edges: GEdge[] = [];
+  const endpointIndex = (id: string): number | undefined => {
+    if (!isGroupNodeId(id)) return index.get(`c:${id}`);
+    if (!f.showGroups) return undefined;
+    return index.get(`g:${groupSourceId(id)}`);
+  };
   for (const cn of project.connections) {
-    const ai = index.get(`c:${cn.source}`);
-    const bi = index.get(`c:${cn.target}`);
-    if (ai === undefined || bi === undefined) continue;
+    const ai = endpointIndex(cn.source);
+    const bi = endpointIndex(cn.target);
+    if (ai === undefined || bi === undefined || ai === bi) continue;
     edges.push({ a: ai, b: bi, kind: 'flow' });
+  }
+  if (f.showGroups) {
+    for (const c of live) {
+      if (!keep.has(c.id) || !c.groupId) continue;
+      const ai = index.get(`g:${c.groupId}`);
+      const bi = index.get(`c:${c.id}`);
+      if (ai === undefined || bi === undefined) continue;
+      edges.push({ a: ai, b: bi, kind: 'member' });
+    }
   }
   if (f.showMentions) {
     for (const c of live) {

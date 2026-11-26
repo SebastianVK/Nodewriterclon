@@ -22,7 +22,7 @@ import ThreadEdge, { PrototypeConnectionLine } from './ThreadEdge';
 import ConfirmCardDropModal, { type CardDropAction } from './ConfirmCardDropModal';
 import ConfirmDeleteConnectionsModal from './ConfirmDeleteConnectionsModal';
 import { IdeaComposer } from './IdeaComposer';
-import GraphView from './GraphView';
+import GraphView, { type GraphEndpoint } from './GraphView';
 import { currentProject, runHistoryBatch, useStore } from './store';
 import {
   CARD_COLORS,
@@ -36,6 +36,9 @@ import {
   codexLabel,
   codexPlaceholder,
   degreeOf,
+  groupNodeId,
+  groupSourceId,
+  isGroupNodeId,
   markdownToHtml,
   orderFromStart,
   relativeTime,
@@ -44,13 +47,17 @@ import {
   type Card,
   type CodexEntry,
   type CodexType,
+  type Connection,
   type Group,
+  type Project,
 } from './types';
 import { cardText, cardsMentioning, findMentions } from './mentions';
 import {
   ArrowLeft,
   Bold,
   BookOpen,
+  ChevronDown,
+  ChevronRight,
   CircleQuestionMark,
   Copy,
   Download,
@@ -94,13 +101,11 @@ import { collectImgIds, getImages, isImageFile, putImage, resolveImgRefs } from 
 
 const nodeTypes = { card: CardNode, group: GroupNode };
 const edgeTypes = { thread: ThreadEdge };
-const GROUP_PREFIX = 'group-';
+const GROUP_COLLAPSED_WIDTH = 248;
+const GROUP_COLLAPSED_HEIGHT = 44;
+const SUMMARY_PREFIX = 'summary:';
 
 /* ---------------- helpers ---------------- */
-
-function groupNodeId(id: string): string {
-  return `${GROUP_PREFIX}${id}`;
-}
 
 function toCardNode(
   card: Card,
@@ -109,11 +114,14 @@ function toCardNode(
   dimmed: boolean,
 ): Node {
   const g = card.groupId ? groups.find((gr) => gr.id === card.groupId) : undefined;
+  const hidden = g?.collapsed === true;
   return {
     id: card.id,
     type: 'card',
     position: g ? { x: card.x - g.x, y: card.y - g.y } : { x: card.x, y: card.y },
     data: { card, codex, dimmed },
+    hidden,
+    selectable: !hidden,
     deletable: card.type !== 'start',
     ...(g ? { parentId: groupNodeId(g.id), extent: 'parent' as const } : {}),
   };
@@ -122,31 +130,51 @@ function toCardNode(
 function toGroupNode(
   group: Group,
   handlers: {
+    cardCount: number;
+    fresh?: boolean;
     onRename: (name: string) => void;
     onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) => void;
     onToggleLock: () => void;
+    onToggleCollapse: () => void;
   },
 ): Node {
+  const collapsed = group.collapsed === true;
+  const width = collapsed ? Math.min(group.width, GROUP_COLLAPSED_WIDTH) : group.width;
+  const height = collapsed ? GROUP_COLLAPSED_HEIGHT : group.height;
   return {
     id: groupNodeId(group.id),
     type: 'group',
     position: { x: group.x, y: group.y },
-    style: { width: group.width, height: group.height },
+    /* React Flow usa node.width/height por encima del style una vez medido. */
+    width,
+    height,
+    style: { width, height },
     draggable: !group.locked,
     deletable: false,
     selectable: true,
     data: {
       group,
+      cardCount: handlers.cardCount,
+      fresh: handlers.fresh ?? false,
       onRename: handlers.onRename,
       onResizeEnd: handlers.onResizeEnd,
       onToggleLock: handlers.onToggleLock,
+      onToggleCollapse: handlers.onToggleCollapse,
     },
   };
 }
 
 /* Borde por defecto para conexiones guardadas sin handles (creadas antes del
    UI 2.0 o desde la vista grafo): salida por la derecha, llegada por la izq. */
-function toEdge(source: string, target: string, id: string, sourceHandle?: string | null, targetHandle?: string | null): Edge {
+function toEdge(
+  source: string,
+  target: string,
+  id: string,
+  sourceHandle?: string | null,
+  targetHandle?: string | null,
+  options?: { hidden?: boolean; summary?: boolean },
+): Edge {
+  const summary = options?.summary === true;
   return {
     id,
     source,
@@ -154,8 +182,57 @@ function toEdge(source: string, target: string, id: string, sourceHandle?: strin
     sourceHandle: sourceHandle ?? 'r',
     targetHandle: targetHandle ?? 'l',
     type: 'thread',
-    animated: true,
+    animated: !summary,
+    hidden: options?.hidden === true,
+    selectable: !summary,
+    deletable: !summary,
+    className: summary ? 'edge-summary' : undefined,
   };
+}
+
+/** Tarjetas ocultas por un grupo plegado y el grupo que las representa. */
+function hiddenCardsByGroup(project: Project): Map<string, string> {
+  const hidden = new Map<string, string>();
+  for (const card of project.cards) {
+    if (card.deletedAt || !card.groupId) continue;
+    const group = project.groups.find((g) => g.id === card.groupId);
+    if (group?.collapsed) hidden.set(card.id, group.id);
+  }
+  return hidden;
+}
+
+/**
+ * Aristas del tablero. Los enlaces manuales se dibujan siempre; las conexiones
+ * de tarjetas ocultas por un grupo plegado se resumen contra el grupo.
+ */
+function buildBoardEdges(project: Project, selectedIds?: Set<string>): Edge[] {
+  const hidden = hiddenCardsByGroup(project);
+  const seen = new Set<string>();
+  const edges: Edge[] = [];
+
+  const add = (cn: Connection, summary: boolean) => {
+    const source = hidden.has(cn.source) ? groupNodeId(hidden.get(cn.source)!) : cn.source;
+    const target = hidden.has(cn.target) ? groupNodeId(hidden.get(cn.target)!) : cn.target;
+    if (source === target) return;
+    const key = `${source}->${target}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push({
+      ...toEdge(source, target, summary ? `${SUMMARY_PREFIX}${key}` : cn.id, cn.sourceHandle, cn.targetHandle, {
+        summary,
+      }),
+      selected: !summary && (selectedIds?.has(cn.id) ?? false),
+    });
+  };
+
+  // Primero los enlaces manuales: si coinciden con un resumen, ganan ellos.
+  for (const cn of project.connections) {
+    if (!hidden.has(cn.source) && !hidden.has(cn.target)) add(cn, false);
+  }
+  for (const cn of project.connections) {
+    if (hidden.has(cn.source) || hidden.has(cn.target)) add(cn, true);
+  }
+  return edges;
 }
 
 function download(filename: string, text: string, mime: string) {
@@ -1481,17 +1558,18 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <h3>Tarjetas</h3>
           <p>Cada tarjeta es una escena o capítulo. Doble-click para editar resumen y contenido markdown. Click derecho para más opciones: duplicar, color, icono, quitar del flujo o eliminar. Mantén <kbd>Alt</kbd> al arrastrar para dejar una copia en el destino.</p>
           <h3>Conexiones</h3>
-          <p>Arrastra desde el punto derecho de una tarjeta al punto izquierdo de otra. Suelta una tarjeta sobre una línea para insertarla en esa conexión, o sobre otra tarjeta para enlazarlas.</p>
+          <p>Arrastra desde el borde de una tarjeta o de un grupo hasta otra tarjeta o grupo. Suelta una tarjeta sobre una línea para insertarla en esa conexión, o sobre otra tarjeta para enlazarlas.</p>
           <h3>Start</h3>
           <p>Todo proyecto tiene un Start verde. La exportación empieza ahí; en bifurcaciones, la rama más alta va primero.</p>
           <h3>Grupos</h3>
-          <p>Botón Grupo para añadir un contenedor redimensionable. Arrastra tarjetas dentro o fuera para agrupar. Click derecho en el grupo para renombrar, color, bloquear o eliminarlo.</p>
+          <p>Selecciona varias tarjetas y pulsa Grupo (o Ctrl+G) para crear un grupo alrededor de ellas. También puedes añadir un grupo vacío con el mismo botón. Arrastra tarjetas dentro o fuera para agrupar, y usa la flecha de la cabecera para plegarlo. Los grupos se pueden conectar entre sí o con tarjetas arrastrando desde su borde.</p>
           <h3>Codex</h3>
           <p>Personajes, lugares y demás se detectan solos en tu texto. "Aparece en" lista las tarjetas que lo mencionan.</p>
           <h3>Atajos</h3>
           <ul className="help-shortcuts">
             <li><kbd>Ctrl+K</kbd> buscar / saltar a tarjeta</li>
             <li><kbd>Ctrl+D</kbd> duplicar la tarjeta seleccionada</li>
+            <li><kbd>Ctrl+G</kbd> agrupar las tarjetas seleccionadas</li>
             <li><kbd>Ctrl+Enter</kbd> guardar y cerrar el editor</li>
             <li><kbd>Supr</kbd> mandar la tarjeta a la papelera</li>
             <li><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Mayús+Z</kbd> deshacer / rehacer</li>
@@ -1527,6 +1605,7 @@ function Board({ projectId }: { projectId: string }) {
   const insertCardInto = useStore((s) => s.insertCardInto);
   const deleteConnection = useStore((s) => s.deleteConnection);
   const addGroup = useStore((s) => s.addGroup);
+  const createGroupFromCards = useStore((s) => s.createGroupFromCards);
   const updateGroup = useStore((s) => s.updateGroup);
   const deleteGroup = useStore((s) => s.deleteGroup);
   const ungroupAll = useStore((s) => s.ungroupAll);
@@ -1546,14 +1625,18 @@ function Board({ projectId }: { projectId: string }) {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
     (project?.groups.map((g) =>
-      toGroupNode(g, { onRename: () => undefined, onResizeEnd: () => undefined, onToggleLock: () => undefined }),
+      toGroupNode(g, {
+        cardCount: project.cards.filter((c) => c.groupId === g.id && !c.deletedAt).length,
+        onRename: () => undefined,
+        onResizeEnd: () => undefined,
+        onToggleLock: () => undefined,
+        onToggleCollapse: () => undefined,
+      }),
     ) ?? []).concat(
       (project?.cards ?? []).filter((c) => !c.deletedAt).map((c) => toCardNode(c, project!.groups, project!.codex, false)),
     ),
   );
-  const [edges, setEdges, onEdgesChange] = useEdgesState(
-    (project?.connections ?? []).map((cn) => toEdge(cn.source, cn.target, cn.id, cn.sourceHandle, cn.targetHandle)),
-  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState(project ? buildBoardEdges(project) : []);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
@@ -1568,6 +1651,7 @@ function Board({ projectId }: { projectId: string }) {
   const [pendingEdgeDelete, setPendingEdgeDelete] = useState<PendingEdgeDelete>(null);
   const [pendingCardDrop, setPendingCardDrop] = useState<CardDropAction | null>(null);
   const [loopWarn, setLoopWarn] = useState(false);
+  const [notice, setNotice] = useState('');
   const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   const activeTagsRef = useRef<string[]>([]);
@@ -1575,24 +1659,36 @@ function Board({ projectId }: { projectId: string }) {
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
   const altDragRef = useRef(false);
+  const freshGroupsRef = useRef(new Set<string>());
+  const noticeTimerRef = useRef(0);
+  const groupSelectionRef = useRef<() => void>(() => undefined);
 
   const cards = useMemo(() => project?.cards.filter((c) => !c.deletedAt) ?? [], [project]);
   const trashedCount = (project?.cards ?? []).filter((c) => c.deletedAt).length;
+  const selectedCardNodes = nodes.filter((n) => n.type === 'card' && n.selected);
+  const groupableSelectedCards = selectedCardNodes.filter((n) => {
+    const card = (n.data as { card?: Card } | undefined)?.card;
+    return !!card && !card.deletedAt && !card.groupId;
+  });
 
   /* Datos del modal de borrado de conexiones: nombres legibles de origen y destino. */
   const pendingConnections = useMemo(() => {
     if (!pendingEdgeDelete || !project) return [];
     const conns = new Map(project.connections.map((cn) => [cn.id, cn]));
     const byCard = new Map(project.cards.map((c) => [c.id, c]));
+    const byGroup = new Map(project.groups.map((g) => [g.id, g]));
+    const labelOf = (nodeId: string): string => {
+      if (isGroupNodeId(nodeId)) {
+        const group = byGroup.get(groupSourceId(nodeId));
+        return group?.name || 'Grupo eliminado';
+      }
+      const card = byCard.get(nodeId);
+      return card ? cardLabel(card) : 'Tarjeta eliminada';
+    };
     return pendingEdgeDelete.edgeIds.flatMap((id) => {
       const cn = conns.get(id);
       if (!cn) return [];
-      const source = byCard.get(cn.source);
-      const target = byCard.get(cn.target);
-      return [{
-        source: source ? cardLabel(source) : 'Tarjeta eliminada',
-        target: target ? cardLabel(target) : 'Tarjeta eliminada',
-      }];
+      return [{ source: labelOf(cn.source), target: labelOf(cn.target) }];
     });
   }, [pendingEdgeDelete, project]);
 
@@ -1616,21 +1712,30 @@ function Board({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!project) return;
     const groupHandlers = (g: Group) => ({
+      cardCount: project.cards.filter((c) => c.groupId === g.id && !c.deletedAt).length,
+      fresh: freshGroupsRef.current.has(g.id),
       onRename: (name: string) => updateGroupRef.current(g.id, { name }),
       onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) =>
         handleGroupResize(g.id, rect),
       onToggleLock: () => updateGroupRef.current(g.id, { locked: !g.locked }),
+      onToggleCollapse: () => updateGroupRef.current(g.id, { collapsed: g.collapsed !== true }),
     });
     setNodes((nds) => {
       const byId = new Map(nds.map((n) => [n.id, n]));
       const next: Node[] = [];
       for (const g of project.groups) {
         const n = byId.get(groupNodeId(g.id));
+        const collapsed = g.collapsed === true;
         if (n) {
+          const width = collapsed ? Math.min(g.width, GROUP_COLLAPSED_WIDTH) : g.width;
+          const height = collapsed ? GROUP_COLLAPSED_HEIGHT : g.height;
           next.push({
             ...n,
+            position: { x: g.x, y: g.y },
             draggable: !g.locked,
-            style: { ...n.style, width: g.width, height: g.height },
+            width,
+            height,
+            style: { ...n.style, width, height },
             data: { ...n.data, group: g, ...groupHandlers(g) },
           });
         } else {
@@ -1640,8 +1745,21 @@ function Board({ projectId }: { projectId: string }) {
       for (const c of project.cards) {
         if (c.deletedAt) continue;
         const n = byId.get(c.id);
+        const group = c.groupId ? project.groups.find((g) => g.id === c.groupId) : undefined;
+        const hidden = group?.collapsed === true;
         if (n) {
-          next.push({ ...n, data: { ...n.data, card: c, codex: project.codex, dimmed: isDimmed(c) } });
+          next.push({
+            ...n,
+            position: group
+              ? { x: c.x - group.x, y: c.y - group.y }
+              : { x: c.x, y: c.y },
+            parentId: group ? groupNodeId(group.id) : undefined,
+            extent: group ? ('parent' as const) : undefined,
+            hidden,
+            selectable: !hidden,
+            selected: hidden ? false : n.selected,
+            data: { ...n.data, card: c, codex: project.codex, dimmed: isDimmed(c) },
+          });
         } else {
           next.push(toCardNode(c, project.groups, project.codex, isDimmed(c)));
         }
@@ -1660,10 +1778,7 @@ function Board({ projectId }: { projectId: string }) {
     if (!p) return;
     setEdges((prev) => {
       const sel = new Set(prev.filter((e) => e.selected).map((e) => e.id));
-      return p.connections.map((cn) => ({
-        ...toEdge(cn.source, cn.target, cn.id, cn.sourceHandle, cn.targetHandle),
-        selected: sel.has(cn.id),
-      }));
+      return buildBoardEdges(p, sel);
     });
   }
 
@@ -1736,6 +1851,7 @@ function Board({ projectId }: { projectId: string }) {
     if (me) {
       for (const cn of p.connections) {
         if (cn.source === node.id || cn.target === node.id) continue;
+        if (isGroupNodeId(cn.source) || isGroupNodeId(cn.target)) continue;
         const s = centerOfCard(cn.source, all);
         const t = centerOfCard(cn.target, all);
         if (!s || !t) continue;
@@ -1796,6 +1912,8 @@ function Board({ projectId }: { projectId: string }) {
     const p = currentProject(useStore.getState());
     if (!p) return false;
     if (p.connections.some((cn) => cn.source === source && cn.target === target)) return false;
+    // Los enlaces con grupos son visuales: no entran en el cálculo de ciclos.
+    if (isGroupNodeId(source) || isGroupNodeId(target)) return true;
     return !wouldCreateLoop(source, target, p.connections);
   }, []);
 
@@ -1805,7 +1923,11 @@ function Board({ projectId }: { projectId: string }) {
       if (!source || !target || source === target) return;
       const p = currentProject(useStore.getState());
       if (!p) return;
-      if (wouldCreateLoop(source, target, p.connections)) {
+      if (
+        !isGroupNodeId(source) &&
+        !isGroupNodeId(target) &&
+        wouldCreateLoop(source, target, p.connections)
+      ) {
         setLoopWarn(true);
         setTimeout(() => setLoopWarn(false), 2500);
         return;
@@ -1864,7 +1986,7 @@ function Board({ projectId }: { projectId: string }) {
       const p = currentProject(st);
       if (!p) return;
       if (node.type === 'group') {
-        const gid = node.id.slice(GROUP_PREFIX.length);
+        const gid = groupSourceId(node.id);
         runHistoryBatch(() => {
           st.updateGroup(gid, { x: node.position.x, y: node.position.y });
           for (const n of all) {
@@ -1931,11 +2053,13 @@ function Board({ projectId }: { projectId: string }) {
         // Agrupar / desagrupar por intersección
         const hit = getIntersectingNodes(node).filter((n) => n.type === 'group');
         const target = hit.length > 0 ? hit[hit.length - 1] : undefined;
-        const targetGid = target ? target.id.slice(GROUP_PREFIX.length) : null;
+        const targetGid = target ? groupSourceId(target.id) : null;
         if (targetGid !== (card?.groupId ?? null)) {
           const g = targetGid ? p.groups.find((gr) => gr.id === targetGid) : undefined;
           if (g) {
-            st.setCardGroup(node.id, g.id, abs.x - g.x, abs.y - g.y);
+            // Soltar sobre un grupo plegado lo despliega para mostrar el resultado.
+            if (g.collapsed) st.updateGroup(g.id, { collapsed: false });
+            st.setCardGroup(node.id, g.id, abs.x, abs.y);
             setNodes((nds) =>
               nds.map((n) =>
                 n.id === node.id
@@ -1976,6 +2100,19 @@ function Board({ projectId }: { projectId: string }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((v) => !v);
+        return;
+      }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === 'g'
+      ) {
+        if (modalOpen) return;
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+        e.preventDefault();
+        groupSelectionRef.current();
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
@@ -2089,17 +2226,120 @@ function Board({ projectId }: { projectId: string }) {
     }, 1500);
   }
 
+  function flashNotice(message: string) {
+    setNotice(message);
+    window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(''), 2800);
+  }
+
+  function markGroupFresh(groupId: string) {
+    freshGroupsRef.current.add(groupId);
+    window.setTimeout(() => {
+      freshGroupsRef.current.delete(groupId);
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === groupNodeId(groupId) && n.data.fresh
+            ? { ...n, data: { ...n.data, fresh: false } }
+            : n,
+        ),
+      );
+    }, 1600);
+  }
+
+  function groupHandlersFor(g: Group, cardCount: number, fresh: boolean) {
+    return {
+      cardCount,
+      fresh,
+      onRename: (name: string) => updateGroup(g.id, { name }),
+      onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) =>
+        handleGroupResize(g.id, rect),
+      onToggleLock: () => updateGroup(g.id, { locked: !g.locked }),
+      onToggleCollapse: () => updateGroup(g.id, { collapsed: g.collapsed !== true }),
+    };
+  }
+
+  function groupSelectedCards() {
+    const all = nodesRef.current;
+    const selected = all.filter((n) => n.type === 'card' && n.selected);
+    if (selected.length === 0) {
+      addGroupCenter();
+      return;
+    }
+    const eligible = selected.filter((n) => {
+      const card = (n.data as { card?: Card } | undefined)?.card;
+      return !!card && !card.deletedAt && !card.groupId;
+    });
+    if (eligible.length === 0) {
+      flashNotice('Las tarjetas seleccionadas ya están en un grupo.');
+      return;
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const node of eligible) {
+      const abs = absOf(node, all);
+      const card = (node.data as { card: Card }).card;
+      const width = node.measured?.width ?? 220;
+      const height = node.measured?.height ?? (card.type === 'start' ? 40 : 120);
+      positions.set(node.id, abs);
+      minX = Math.min(minX, abs.x);
+      minY = Math.min(minY, abs.y);
+      maxX = Math.max(maxX, abs.x + width);
+      maxY = Math.max(maxY, abs.y + height);
+    }
+
+    const padX = 28;
+    const padTop = 46;
+    const padBottom = 28;
+    const rect = {
+      x: minX - padX,
+      y: minY - padTop,
+      width: maxX - minX + padX * 2,
+      height: maxY - minY + padTop + padBottom,
+    };
+    const ids = new Set(eligible.map((n) => n.id));
+    const g = createGroupFromCards([...ids], rect);
+    if (!g) return;
+
+    const groupNode: Node = {
+      ...toGroupNode(g, groupHandlersFor(g, eligible.length, true)),
+      selected: true,
+    };
+    setNodes((nds) => {
+      const next = nds.map((n) => {
+        if (ids.has(n.id)) {
+          const abs = positions.get(n.id) ?? absOf(n, nds);
+          return {
+            ...n,
+            parentId: groupNodeId(g.id),
+            extent: 'parent' as const,
+            position: { x: abs.x - rect.x, y: abs.y - rect.y },
+            selected: false,
+          };
+        }
+        return n;
+      });
+      return [groupNode, ...next];
+    });
+    markGroupFresh(g.id);
+    if (eligible.length < selected.length) {
+      flashNotice('Se agruparon solo las tarjetas que no pertenecían a otro grupo.');
+    }
+  }
+
+  groupSelectionRef.current = groupSelectedCards;
+
   function addGroupCenter() {
     const pos = screenToFlowPosition({ x: window.innerWidth / 2 - 160, y: window.innerHeight / 2 - 110 });
     const g = addGroup(pos.x, pos.y);
     if (!g) return;
+    markGroupFresh(g.id);
     setNodes((nds) => [
       ...nds,
-      toGroupNode(g, {
-        onRename: (name) => updateGroup(g.id, { name }),
-        onResizeEnd: (rect) => handleGroupResize(g.id, rect),
-        onToggleLock: () => updateGroup(g.id, { locked: !g.locked }),
-      }),
+      toGroupNode(g, groupHandlersFor(g, 0, true)),
     ]);
   }
 
@@ -2110,6 +2350,20 @@ function Board({ projectId }: { projectId: string }) {
       if (!card) return;
       setCenter(card.x + 110, card.y + 60, { zoom: 1.1, duration: 300 });
       setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === cardId })));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setCenter, setNodes],
+  );
+
+  const jumpToGroup = useCallback(
+    (groupId: string) => {
+      const p = liveProject();
+      const group = p?.groups.find((g) => g.id === groupId);
+      if (!group) return;
+      const width = group.collapsed ? Math.min(group.width, GROUP_COLLAPSED_WIDTH) : group.width;
+      const height = group.collapsed ? GROUP_COLLAPSED_HEIGHT : group.height;
+      setCenter(group.x + width / 2, group.y + height / 2, { zoom: 1.1, duration: 300 });
+      setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === groupNodeId(groupId) })));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [setCenter, setNodes],
@@ -2178,6 +2432,7 @@ function Board({ projectId }: { projectId: string }) {
         )}
         <span className="toolbar-spacer" />
         {loopWarn && <span className="warn">Esa conexión crearía un ciclo</span>}
+        {notice && <span className="warn">{notice}</span>}
         <button
           className="btn btn-icon toolbar-search"
           title={activeTags.length > 0 ? `Buscar (${activeTags.length} filtros)` : 'Buscar (Ctrl+K)'}
@@ -2189,8 +2444,17 @@ function Board({ projectId }: { projectId: string }) {
         <button className="btn btn-secondary" onClick={addCardCenter}>
           <Plus size={16} /> Tarjeta
         </button>
-        <button className="btn btn-secondary" title="Añadir grupo" onClick={addGroupCenter}>
+        <button
+          className="btn btn-secondary"
+          title={
+            groupableSelectedCards.length > 0
+              ? `Agrupar ${groupableSelectedCards.length} tarjeta${groupableSelectedCards.length === 1 ? '' : 's'} seleccionada${groupableSelectedCards.length === 1 ? '' : 's'} (Ctrl+G)`
+              : 'Añadir grupo'
+          }
+          onClick={groupSelectedCards}
+        >
           <GroupIcon size={16} /> Grupo
+          {groupableSelectedCards.length > 0 && <span className="btn-count">{groupableSelectedCards.length}</span>}
         </button>
         <button className="btn btn-secondary" title="Codex de historia" onClick={() => openCodex(null)}>
           <BookOpen size={16} /> Codex
@@ -2291,10 +2555,18 @@ function Board({ projectId }: { projectId: string }) {
         }}
         onEdgeContextMenu={(e, edge) => {
           e.preventDefault();
+          if (edge.id.startsWith(SUMMARY_PREFIX)) {
+            flashNotice('Despliega el grupo para editar sus conexiones.');
+            return;
+          }
           setCtx({ x: e.clientX, y: e.clientY, edgeId: edge.id });
         }}
         onEdgeDoubleClick={(e, edge) => {
           e.preventDefault();
+          if (edge.id.startsWith(SUMMARY_PREFIX)) {
+            flashNotice('Despliega el grupo para editar sus conexiones.');
+            return;
+          }
           requestDeleteEdges([edge.id]);
         }}
         onPaneClick={() => setCtx(null)}
@@ -2350,6 +2622,14 @@ function Board({ projectId }: { projectId: string }) {
               >
                 <Copy size={14} /> Duplicar
               </button>
+              {ctxNode?.selected === true && groupableSelectedCards.length > 0 && (
+                <button
+                  className="ctx-item"
+                  onClick={() => { groupSelectedCards(); setCtx(null); }}
+                >
+                  <GroupIcon size={14} /> Agrupar {groupableSelectedCards.length} seleccionada{groupableSelectedCards.length === 1 ? '' : 's'}
+                </button>
+              )}
               <div className="ctx-label">Color</div>
               <div className="ctx-swatches">
                 {CARD_COLORS.map((c) => (
@@ -2447,6 +2727,16 @@ function Board({ projectId }: { projectId: string }) {
               <button
                 className="ctx-item"
                 onClick={() => {
+                  updateGroup(ctxGroup.id, { collapsed: ctxGroup.collapsed !== true });
+                  setCtx(null);
+                }}
+              >
+                {ctxGroup.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                {ctxGroup.collapsed ? ' Desplegar grupo' : ' Plegar grupo'}
+              </button>
+              <button
+                className="ctx-item"
+                onClick={() => {
                   const name = window.prompt('Nombre del grupo', ctxGroup.name);
                   if (name && name.trim()) updateGroup(ctxGroup.id, { name: name.trim() });
                   setCtx(null);
@@ -2475,7 +2765,18 @@ function Board({ projectId }: { projectId: string }) {
               </button>
               <button
                 className="ctx-item"
-                onClick={() => { ungroupAll(ctxGroup.id); setCtx(null); }}
+                onClick={() => {
+                  const gid = ctxGroup.id;
+                  ungroupAll(gid);
+                  setNodes((nds) =>
+                    nds.map((n) => {
+                      if (n.parentId !== groupNodeId(gid)) return n;
+                      const abs = absOf(n, nodesRef.current);
+                      return { ...n, parentId: undefined, extent: undefined, position: abs };
+                    }),
+                  );
+                  setCtx(null);
+                }}
               >
                 Desagrupar todo
               </button>
@@ -2495,6 +2796,7 @@ function Board({ projectId }: { projectId: string }) {
                           return { ...n, parentId: undefined, extent: undefined, position: abs };
                         }),
                     );
+                    syncEdges();
                   }
                   setCtx(null);
                 }}
@@ -2585,13 +2887,23 @@ function Board({ projectId }: { projectId: string }) {
         <GraphView
           onClose={() => setGraphOpen(false)}
           onJumpCard={(id) => { setGraphOpen(false); jumpTo(id); }}
+          onJumpGroup={(id) => { setGraphOpen(false); jumpToGroup(id); }}
           onOpenCodex={(id) => { setGraphOpen(false); openCodex(id); }}
-          onConnectCards={(a, b) => {
+          onConnectNodes={(a: GraphEndpoint, b: GraphEndpoint) => {
             const p = liveProject();
-            if (!p || a === b) return 'self';
-            if (p.connections.some((cn) => cn.source === a && cn.target === b)) return 'dup';
-            if (wouldCreateLoop(a, b, p.connections)) return 'loop';
-            addConnection(a, b);
+            if (!p) return 'self';
+            const source = a.kind === 'group' ? groupNodeId(a.id) : a.id;
+            const target = b.kind === 'group' ? groupNodeId(b.id) : b.id;
+            if (source === target) return 'self';
+            if (p.connections.some((cn) => cn.source === source && cn.target === target)) return 'dup';
+            if (
+              a.kind === 'card' &&
+              b.kind === 'card' &&
+              wouldCreateLoop(source, target, p.connections)
+            ) {
+              return 'loop';
+            }
+            addConnection(source, target);
             return 'ok';
           }}
         />

@@ -8,7 +8,13 @@ import type {
   Project,
   Revision,
 } from './types';
-import { nowIso, uid } from './types';
+import {
+  GROUP_PREFIX,
+  groupNodeId,
+  isGroupNodeId,
+  nowIso,
+  uid,
+} from './types';
 
 export const BACKUP_FORMAT = 'storygraph-backup';
 export const BACKUP_VERSION = 1;
@@ -114,6 +120,7 @@ function normalizeStorygraph(o: Record<string, unknown>): Project {
       width: num(g.width, 320),
       height: num(g.height, 240),
       locked: g.locked === true,
+      collapsed: g.collapsed === true,
     };
   });
   const codex: CodexEntry[] = (Array.isArray(o.codex) ? o.codex : []).map((r) => {
@@ -195,6 +202,7 @@ function normalizeNodeWriter(
       width: num(g.width, 320),
       height: num(g.height, 240),
       locked: g.locked === true || g.locked === 1,
+      collapsed: false,
     };
   });
   const rawCodex = Array.isArray(extraCodex) ? extraCodex : [];
@@ -265,6 +273,14 @@ export function remapProject(p: Project): Project {
   const cardMap = new Map(p.cards.map((c) => [c.id, uid()]));
   const groupMap = new Map(p.groups.map((g) => [g.id, uid()]));
   const codexMap = new Map(p.codex.map((e) => [e.id, uid()]));
+  const remapEndpoint = (id: string): string | null => {
+    if (isGroupNodeId(id)) {
+      const gid = id.slice(GROUP_PREFIX.length);
+      const mapped = groupMap.get(gid);
+      return mapped ? groupNodeId(mapped) : null;
+    }
+    return cardMap.get(id) ?? null;
+  };
   const t = nowIso();
   return {
     ...p,
@@ -277,15 +293,18 @@ export function remapProject(p: Project): Project {
       tags: [...c.tags],
       groupId: c.groupId ? (groupMap.get(c.groupId) ?? null) : null,
     })),
-    connections: p.connections
-      .filter((cn) => cardMap.has(cn.source) && cardMap.has(cn.target))
-      .map((cn) => ({
+    connections: p.connections.flatMap((cn) => {
+      const source = remapEndpoint(cn.source);
+      const target = remapEndpoint(cn.target);
+      if (!source || !target || source === target) return [];
+      return [{
         id: uid(),
-        source: cardMap.get(cn.source)!,
-        target: cardMap.get(cn.target)!,
+        source,
+        target,
         sourceHandle: cn.sourceHandle ?? null,
         targetHandle: cn.targetHandle ?? null,
-      })),
+      }];
+    }),
     groups: p.groups.map((g) => ({ ...g, id: groupMap.get(g.id)! })),
     codex: p.codex.map((e) => ({ ...e, id: codexMap.get(e.id)!, aliases: [...e.aliases] })),
     revisions: p.revisions

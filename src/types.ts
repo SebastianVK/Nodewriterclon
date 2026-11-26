@@ -17,7 +17,9 @@ export interface Card {
 
 export interface Connection {
   id: string;
+  /** Id de nodo: id de tarjeta o `group-<id>` para un grupo. */
   source: string;
+  /** Id de nodo: id de tarjeta o `group-<id>` para un grupo. */
   target: string;
   /** Borde por el que se agarró/soltó (t/r/b/l). Opcional: por defecto r→l. */
   sourceHandle?: string | null;
@@ -33,6 +35,28 @@ export interface Group {
   width: number;
   height: number;
   locked: boolean;
+  /** Plegado: conserva width/height originales y oculta las tarjetas hijas. */
+  collapsed?: boolean;
+}
+
+/** Prefijo de los nodos de grupo en React Flow (los ids de tarjeta no lo usan). */
+export const GROUP_PREFIX = 'group-';
+
+export function groupNodeId(id: string): string {
+  return `${GROUP_PREFIX}${id}`;
+}
+
+export function isGroupNodeId(id: string): boolean {
+  return id.startsWith(GROUP_PREFIX);
+}
+
+export function groupSourceId(nodeId: string): string {
+  return isGroupNodeId(nodeId) ? nodeId.slice(GROUP_PREFIX.length) : nodeId;
+}
+
+/** Posición absoluta de una tarjeta (las x/y se guardan siempre absolutas). */
+export function cardAbsolutePos(card: Pick<Card, 'x' | 'y'>): { x: number; y: number } {
+  return { x: card.x, y: card.y };
 }
 
 export type CodexType = 'character' | 'location' | 'item' | 'lore' | 'other';
@@ -249,6 +273,8 @@ export function wouldCreateLoop(
   if (source === target) return true;
   const adj = new Map<string, string[]>();
   for (const cn of connections) {
+    // Los enlaces con grupos son visuales y no forman parte del flujo narrativo.
+    if (isGroupNodeId(cn.source) || isGroupNodeId(cn.target)) continue;
     const list = adj.get(cn.source) ?? [];
     list.push(cn.target);
     adj.set(cn.source, list);

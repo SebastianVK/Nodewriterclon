@@ -11,7 +11,15 @@ import type {
   Project,
   Revision,
 } from './types';
-import { nowIso, uid, CODEX_DEFAULT_COLOR, CODEX_DEFAULT_ICON } from './types';
+import {
+  nowIso,
+  uid,
+  CODEX_DEFAULT_COLOR,
+  CODEX_DEFAULT_ICON,
+  cardAbsolutePos,
+  groupNodeId,
+  isGroupNodeId,
+} from './types';
 import { classifyIdea, detectName, IDEA_CODEX, IDEA_STYLE } from './composer';
 
 /** Instantánea de estado para deshacer/rehacer (por referencia: barato). */
@@ -89,6 +97,11 @@ interface StoryState {
   deleteConnection: (id: string) => void;
 
   addGroup: (x: number, y: number) => Group | null;
+  /** Crea un grupo que envuelve las tarjetas indicadas (solo tarjetas sin grupo). */
+  createGroupFromCards: (
+    cardIds: string[],
+    rect: { x: number; y: number; width: number; height: number },
+  ) => Group | null;
   updateGroup: (id: string, patch: Partial<Group>) => void;
   deleteGroup: (id: string, ungroup?: boolean) => void;
   ungroupAll: (groupId: string) => void;
@@ -394,9 +407,12 @@ export const useStore = create<StoryState>()(
       trashCard: (id) =>
         set((s) =>
           withCurrent(s, (p) => ({
-            cards: p.cards.map((c) =>
-              c.id === id ? { ...c, deletedAt: nowIso(), groupId: null } : c,
-            ),
+            cards: p.cards.map((c) => {
+              if (c.id !== id) return c;
+              // Al sacar la tarjeta del grupo conservamos su posición visual.
+              const abs = cardAbsolutePos(c);
+              return { ...c, deletedAt: nowIso(), groupId: null, x: abs.x, y: abs.y };
+            }),
             connections: p.connections.filter((cn) => cn.source !== id && cn.target !== id),
           })),
         ),
@@ -440,27 +456,11 @@ export const useStore = create<StoryState>()(
 
       setCardGroup: (id, groupId, x, y) =>
         set((s) =>
-          withCurrent(s, (p) => {
-            const card = p.cards.find((c) => c.id === id);
-            let nx = x;
-            let ny = y;
-            // Al desagrupar sin coordenadas, conserva la posición visual
-            // (las x/y guardadas eran relativas al grupo).
-            if (groupId === null && card?.groupId && nx === undefined) {
-              const g = p.groups.find((gr) => gr.id === card.groupId);
-              if (g) {
-                nx = g.x + card.x;
-                ny = g.y + card.y;
-              }
-            }
-            return {
-              cards: p.cards.map((c) =>
-                c.id === id
-                  ? { ...c, groupId, x: nx ?? c.x, y: ny ?? c.y }
-                  : c,
-              ),
-            };
-          }),
+          withCurrent(s, (p) => ({
+            cards: p.cards.map((c) =>
+              c.id === id ? { ...c, groupId, x: x ?? c.x, y: y ?? c.y } : c,
+            ),
+          })),
         ),
 
       addConnection: (source, target, sourceHandle, targetHandle) => {
@@ -480,7 +480,15 @@ export const useStore = create<StoryState>()(
         set((s) =>
           withCurrent(s, (p) => {
             const cn = p.connections.find((c) => c.id === connectionId);
-            if (!cn || cn.source === cardId || cn.target === cardId) return {};
+            if (
+              !cn ||
+              cn.source === cardId ||
+              cn.target === cardId ||
+              isGroupNodeId(cn.source) ||
+              isGroupNodeId(cn.target)
+            ) {
+              return {};
+            }
             return {
               connections: [
                 ...p.connections.filter((c) => c.id !== connectionId),
@@ -504,10 +512,46 @@ export const useStore = create<StoryState>()(
           width: 320,
           height: 240,
           locked: false,
+          collapsed: false,
         };
         if (!get().currentId) return null;
         set((s) => withCurrent(s, (p) => ({ groups: [...p.groups, group] })));
         return group;
+      },
+
+      createGroupFromCards: (cardIds, rect) => {
+        const ids = new Set(cardIds);
+        let created: Group | null = null;
+        set((s) =>
+          withCurrent(s, (p) => {
+            // No mezclamos grupos: solo entran tarjetas que aún no pertenecen a otro.
+            const selected = p.cards.filter(
+              (c) => ids.has(c.id) && !c.deletedAt && !c.groupId,
+            );
+            if (selected.length === 0) return {};
+            const group: Group = {
+              id: uid(),
+              name: `Grupo ${p.groups.length + 1}`,
+              color: '#64748B',
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+              locked: false,
+              collapsed: false,
+            };
+            created = group;
+            const selectedIds = new Set(selected.map((c) => c.id));
+            return {
+              groups: [...p.groups, group],
+              cards: p.cards.map((c) => {
+                if (!selectedIds.has(c.id)) return c;
+                return { ...c, groupId: group.id };
+              }),
+            };
+          }),
+        );
+        return created;
       },
 
       updateGroup: (id, patch) =>
@@ -517,10 +561,17 @@ export const useStore = create<StoryState>()(
 
       deleteGroup: (id, ungroup = true) =>
         set((s) =>
-          withCurrent(s, (p) => ({
-            groups: p.groups.filter((g) => g.id !== id),
-            cards: ungroup ? p.cards.map((c) => (c.groupId === id ? { ...c, groupId: null } : c)) : p.cards,
-          })),
+          withCurrent(s, (p) => {
+            return {
+              groups: p.groups.filter((gr) => gr.id !== id),
+              cards: ungroup
+                ? p.cards.map((c) => (c.groupId === id ? { ...c, groupId: null } : c))
+                : p.cards,
+              connections: p.connections.filter(
+                (cn) => cn.source !== groupNodeId(id) && cn.target !== groupNodeId(id),
+              ),
+            };
+          }),
         ),
 
       ungroupAll: (groupId) =>
