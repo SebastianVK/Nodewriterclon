@@ -1,13 +1,27 @@
 import { memo, useState } from 'react';
-import { NodeResizer, type NodeProps } from '@xyflow/react';
-import { Lock, Unlock, Pencil } from 'lucide-react';
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  type NodeProps,
+} from '@xyflow/react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  Pencil,
+  Unlock,
+} from 'lucide-react';
 import type { Group } from './types';
 
 export interface GroupNodeData extends Record<string, unknown> {
   group: Group;
+  cardCount: number;
+  fresh?: boolean;
   onRename: (name: string) => void;
   onResizeEnd: (rect: { x: number; y: number; width: number; height: number }) => void;
   onToggleLock: () => void;
+  onToggleCollapse: () => void;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -18,10 +32,31 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
+/* Igual que las tarjetas: cuatro handles invisibles para conectar el grupo. */
+function GroupHandles() {
+  return (
+    <>
+      <Handle id="t" type="source" position={Position.Top} />
+      <Handle id="r" type="source" position={Position.Right} />
+      <Handle id="b" type="source" position={Position.Bottom} />
+      <Handle id="l" type="source" position={Position.Left} />
+    </>
+  );
+}
+
 function GroupNodeComponent({ data, selected }: NodeProps) {
-  const { group, onRename, onResizeEnd, onToggleLock } = data as unknown as GroupNodeData;
+  const {
+    group,
+    cardCount,
+    fresh,
+    onRename,
+    onResizeEnd,
+    onToggleLock,
+    onToggleCollapse,
+  } = data as unknown as GroupNodeData;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(group.name);
+  const collapsed = group.collapsed === true;
 
   function commit() {
     setEditing(false);
@@ -32,21 +67,37 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`group-node${group.locked ? ' locked' : ''}`}
-      style={{ borderColor: group.color, background: hexToRgba(group.color, 0.07) }}
+      className={`group-node${group.locked ? ' locked' : ''}${collapsed ? ' collapsed' : ''}${fresh ? ' fresh' : ''}`}
+      style={{
+        borderColor: group.color,
+        background: hexToRgba(group.color, 0.07),
+        ['--group-color' as string]: group.color,
+      }}
     >
-      <NodeResizer
-        color={group.color}
-        isVisible={selected && !group.locked}
-        minWidth={220}
-        minHeight={160}
-        onResizeEnd={(_, params) => onResizeEnd(params)}
-      />
-      <div className="group-header nodrag" style={{ borderColor: group.color }}>
+      {!collapsed && (
+        <NodeResizer
+          color={group.color}
+          isVisible={selected && !group.locked}
+          minWidth={220}
+          minHeight={160}
+          onResizeEnd={(_, params) => onResizeEnd(params)}
+        />
+      )}
+      <div className="group-header" style={{ borderColor: group.color }}>
+        <button
+          type="button"
+          className="group-icon-btn group-collapse-btn nodrag"
+          title={collapsed ? 'Desplegar grupo' : 'Plegar grupo'}
+          aria-label={collapsed ? 'Desplegar grupo' : 'Plegar grupo'}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={onToggleCollapse}
+        >
+          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+        </button>
         {editing ? (
           <input
             autoFocus
-            className="group-name-input"
+            className="group-name-input nodrag"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
@@ -61,10 +112,13 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
             {group.name}
           </span>
         )}
+        <span className="group-count" title={`${cardCount} tarjeta${cardCount === 1 ? '' : 's'}`}>
+          {cardCount}
+        </span>
         {!editing && (
           <button
             type="button"
-            className="group-icon-btn"
+            className="group-icon-btn nodrag"
             title="Renombrar"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => { setDraft(group.name); setEditing(true); }}
@@ -74,7 +128,7 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
         )}
         <button
           type="button"
-          className="group-icon-btn"
+          className="group-icon-btn nodrag"
           title={group.locked ? 'Desbloquear posición' : 'Bloquear posición'}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={onToggleLock}
@@ -82,6 +136,7 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
           {group.locked ? <Lock size={11} /> : <Unlock size={11} />}
         </button>
       </div>
+      <GroupHandles />
     </div>
   );
 }

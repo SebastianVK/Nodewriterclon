@@ -18,16 +18,20 @@ interface View {
   k: number;
 }
 
+export type GraphEndpoint = { kind: 'card' | 'group'; id: string };
+
 export default function GraphView({
   onClose,
   onJumpCard,
+  onJumpGroup,
   onOpenCodex,
-  onConnectCards,
+  onConnectNodes,
 }: {
   onClose: () => void;
   onJumpCard: (cardId: string) => void;
+  onJumpGroup: (groupId: string) => void;
   onOpenCodex: (entryId: string) => void;
-  onConnectCards: (a: string, b: string) => 'ok' | 'dup' | 'loop' | 'self';
+  onConnectNodes: (a: GraphEndpoint, b: GraphEndpoint) => 'ok' | 'dup' | 'loop' | 'self';
 }) {
   const project = useStore((s) => currentProject(s));
   const theme = useStore((s) => s.theme);
@@ -37,6 +41,7 @@ export default function GraphView({
   const [depth, setDepth] = useState(2);
   const [showMentions, setShowMentions] = useState(true);
   const [showOrphans, setShowOrphans] = useState(true);
+  const [showGroups, setShowGroups] = useState(true);
   const [tag, setTag] = useState('all');
   const [forces, setForces] = useState<ForceParams>(DEFAULT_FORCES);
 
@@ -60,8 +65,8 @@ export default function GraphView({
     nodeStroke: 'rgba(255, 255, 255, 0.4)',
     nodeHover: '#b3a6ff',
   });
-  const cbRef = useRef({ onJumpCard, onOpenCodex, onConnectCards });
-  cbRef.current = { onJumpCard, onOpenCodex, onConnectCards };
+  const cbRef = useRef({ onJumpCard, onJumpGroup, onOpenCodex, onConnectNodes });
+  cbRef.current = { onJumpCard, onJumpGroup, onOpenCodex, onConnectNodes };
   forcesRef.current = forces;
 
   const allTags = useMemo(() => {
@@ -74,8 +79,8 @@ export default function GraphView({
   }, [project]);
 
   const graph = useMemo(
-    () => (project ? buildGraph(project, { showMentions, showOrphans, tag }) : null),
-    [project, showMentions, showOrphans, tag],
+    () => (project ? buildGraph(project, { showMentions, showOrphans, showGroups, tag }) : null),
+    [project, showMentions, showOrphans, showGroups, tag],
   );
   graphRef.current = graph;
 
@@ -87,9 +92,12 @@ export default function GraphView({
     const cards = project.cards
       .filter((c) => !c.deletedAt)
       .map((c) => ({ id: `c:${c.id}`, label: c.type === 'start' ? 'Start' : c.title || 'Nueva tarjeta' }));
+    const groups = showGroups
+      ? project.groups.map((g) => ({ id: `g:${g.id}`, label: `▣ ${g.name || 'Grupo'}` }))
+      : [];
     const codex = project.codex.map((e) => ({ id: `x:${e.id}`, label: `◈ ${codexLabel(e)}` }));
-    return [...cards, ...codex];
-  }, [project]);
+    return [...cards, ...groups, ...codex];
+  }, [project, showGroups]);
 
   const stats = useMemo(() => {
     if (!graph) return { n: 0, e: 0, vn: 0 };
@@ -230,9 +238,14 @@ export default function GraphView({
           ctx.closePath();
           ctx.fill();
         } else {
-          ctx.globalAlpha = dim ? 0.06 : 0.55;
+          const member = e.kind === 'member';
+          ctx.globalAlpha = dim ? 0.04 : member ? 0.34 : 0.55;
           ctx.strokeStyle = col.faint;
-          ctx.setLineDash([4 / v.k + 2, 4 / v.k + 2]);
+          ctx.setLineDash(
+            member
+              ? [3 / v.k + 2, 5 / v.k + 2]
+              : [4 / v.k + 2, 4 / v.k + 2],
+          );
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
@@ -253,6 +266,13 @@ export default function GraphView({
         if (n.kind === 'card') {
           ctx.beginPath();
           ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+          ctx.fillStyle = n.color;
+          ctx.fill();
+          ctx.stroke();
+        } else if (n.kind === 'group') {
+          const s = n.r * 1.7;
+          ctx.beginPath();
+          ctx.roundRect(n.x - s / 2, n.y - s / 2, s, s, 6 / v.k + 3);
           ctx.fillStyle = n.color;
           ctx.fill();
           ctx.stroke();
@@ -356,11 +376,17 @@ export default function GraphView({
       const a = nodes[fromIdx];
       const b = nodes[toIdx];
       if (!a || !b) return;
-      if (a.kind !== 'card' || b.kind !== 'card') {
-        flash('Solo se pueden conectar tarjetas');
+      if (
+        (a.kind !== 'card' && a.kind !== 'group') ||
+        (b.kind !== 'card' && b.kind !== 'group')
+      ) {
+        flash('Solo se pueden conectar tarjetas y grupos');
         return;
       }
-      const res = cbRef.current.onConnectCards(a.refId, b.refId);
+      const res = cbRef.current.onConnectNodes(
+        { kind: a.kind, id: a.refId },
+        { kind: b.kind, id: b.refId },
+      );
       flash(
         res === 'ok'
           ? `Conectado: ${a.label} → ${b.label}`
@@ -436,6 +462,7 @@ export default function GraphView({
         const n = simRef.current[dr.idx];
         if (n) {
           if (n.kind === 'card') cbRef.current.onJumpCard(n.refId);
+          else if (n.kind === 'group') cbRef.current.onJumpGroup(n.refId);
           else cbRef.current.onOpenCodex(n.refId);
         }
       }
@@ -529,6 +556,10 @@ export default function GraphView({
           <input type="checkbox" checked={showOrphans} onChange={(e) => setShowOrphans(e.target.checked)} />
           Huérfanas (sin aristas)
         </label>
+        <label className="check-row">
+          <input type="checkbox" checked={showGroups} onChange={(e) => setShowGroups(e.target.checked)} />
+          Grupos y pertenencia
+        </label>
         <label className="field-label">Fuerzas</label>
         <label className="graph-slider">
           Centro
@@ -560,9 +591,10 @@ export default function GraphView({
         </label>
         <div className="graph-legend">
           <span><i className="legend-dot" /> tarjeta (tamaño ∝ conexiones)</span>
+          <span><i className="legend-square" /> grupo</span>
           <span><i className="legend-diamond" /> codex</span>
-          <span><i className="legend-line" /> flujo →</span>
-          <span><i className="legend-dash" /> mención</span>
+          <span><i className="legend-line" /> flujo / enlace de grupo →</span>
+          <span><i className="legend-dash" /> mención o pertenencia</span>
         </div>
       </div>
       <div className="graph-hint muted">
